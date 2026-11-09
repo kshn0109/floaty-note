@@ -1,0 +1,2659 @@
+@import "tailwindcss";
+/* 색 값의 유일한 출처. 경량 토스트 페이지(toast.css)도 같은 파일을 들여온다. */
+@import "./palette.css";
+
+/* 표시 모드(불투명/반투명/오버레이)에 따라 `displayMode.ts`가 덮어쓰는, 실제로
+   칠하는 색. 글자·강조색은 여기 들어오지 않으므로 어느 모드에서도 100% 선명하다. */
+:root {
+  --bg-field: var(--field);
+  --bg-bar: var(--bar);
+  --bg-chip: transparent; /* 오버레이에서만 불투명 칩이 된다 */
+  --text-backing: transparent;
+  /* 받침 띠(줄 상자)를 형광펜이 덮는 데 드는 세로 여유 = 반 줄간격.
+     `displayMode.ts`가 실제 글꼴을 재서 덮어쓴다 — 이 값은 Segoe UI 기준 기본값이다. */
+  --backing-bleed: 0.21em;
+  /* 같은 값의 고정폭 글꼴(일반 텍스트 모드) 판. 글꼴 상자 높이가 다르다. */
+  --backing-bleed-mono: 0.21em;
+  --win-radius: 8px;
+
+  /* 고정 수치 (시안 R5 / R5List) */
+  --title-h: 36px;
+  --notelist-w: 168px;
+  --highlight-yellow: #ffeb3b;
+  /* 일반 텍스트 모드의 글꼴 — `editor/PlainHost.ts`의 테마와 `displayMode.ts`의
+     글꼴 상자 재기가 **이 한 곳**을 본다. */
+  --mono-font: ui-monospace, "Cascadia Mono", Consolas, "Malgun Gothic", monospace;
+
+  /* 본문 글꼴과 기본 글자 크기 — 설정 › 모양 › `글꼴`(시안 G1 · `lib/fonts.ts`).
+     여기 있는 값이 **`기본`의 모습**이고, 사용자가 다른 글꼴·크기를 고르면 `App`이
+     `:root`에 덮어쓴다(기본으로 돌아오면 지워서 이 값이 다시 산다).
+     확대/축소(`--zoom`)는 `--doc-size` 위에 **곱해진다**(사용자 결정 2026-11-09). */
+  --doc-font: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  --doc-size: 15px;
+
+  /* 편집 여백 (시안 R5: 위 18 · 좌우 32 · 아래는 도구 줄에 가리지 않게 64).
+     좁은 창에서 아래 `@media`가 줄인다. 두 엔진(ProseMirror · CodeMirror)이 같은
+     값을 쓰도록 변수로 둔다 — CodeMirror 쪽은 `editor/PlainHost.ts`의 theme. */
+  --edit-pad-top: 18px;
+  --edit-pad-x: 32px;
+  --edit-pad-bottom: 64px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  /* 창은 transparent: true — 바깥 모서리 밖이 실제로 뚫려 보이려면 투명해야 한다. */
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  color: var(--text);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   창 바깥 틀 — 둥근 모서리 8 + 1px hairline을 앱이 직접 그린다
+   (Win11 전용 DWM 속성에 기대지 않으므로 Win10/11이 같은 모양).
+   R5: 창 전체가 한 장의 종이라 배경이 field 하나다.
+   --------------------------------------------------------------------------- */
+.win {
+  position: relative;
+  height: 100%;
+  display: flex;
+  border-radius: var(--win-radius);
+  border: 1px solid var(--hair);
+  background: var(--bg-field);
+  overflow: hidden;
+}
+
+.win[data-maximized="1"] {
+  --win-radius: 0px;
+}
+
+/* 오버레이: 배경은 완전 투명, 틀의 hairline도 없앤다(원본도 오버레이에서는 창
+   테두리를 끈다). 떠 있는 도구 줄과 메모 목록만 불투명하게 남는다. */
+.win[data-overlay="1"] {
+  border-color: transparent;
+}
+
+.main {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex-grow: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+/* ---------------------------------------------------------------------------
+   메모 목록 (시안 R5List — 폭 168, bar 배경, 오른쪽 1px hairline)
+   --------------------------------------------------------------------------- */
+.notelist {
+  width: var(--notelist-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-bar);
+  border-right: 1px solid var(--hair);
+}
+
+.notelist-head {
+  height: var(--title-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+}
+
+.notelist-count {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* 머리를 뺀 패널 안쪽 전체가 스크롤한다 — 이 창의 메모 + `다른 창` + `최근 파일` +
+   `+ 새 메모`가 모두 한 흐름이다(목록은 모든 창 공통이므로 길어질 수 있다). */
+.notelist-scroll {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px;
+  overflow-y: auto;
+}
+
+/* 이 창의 메모 줄만 들어 있는 묶음 — **놓을 자리를 재는 기준**(`data-tab="1"`)이라
+   다른 창·최근 파일 줄은 여기 들어오지 않는다. */
+.notelist-items,
+.notelist-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notelist-item {
+  border: 0;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--dim);
+  text-align: left;
+  /* 끌어서 순서를 바꾸는 동안 글자가 선택되지 않게(알약 탭과 같다). */
+  user-select: none;
+  touch-action: none;
+}
+
+.notelist-item[data-active="1"] {
+  background: var(--field);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.notelist-item:hover:not([data-active="1"]) {
+  background: var(--hover);
+}
+
+.notelist-name {
+  flex-grow: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notelist-plus {
+  width: 8px;
+  text-align: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* 섹션 라벨(`다른 창` · `최근 파일`) — 승인된 시안 `Popups.dc.html`의 섹션 라벨 그대로
+   (높이 22 · 11px dim · 패딩 0 10). 위에 4px을 띄워 앞 묶음과 붙지 않게 한다. */
+.notelist-section {
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--dim);
+  user-select: none;
+}
+
+/* 다른 창·최근 파일 줄은 **내 메모가 아니다** — 색 점을 한 단 흐리게 해서 "여기 것"과
+   "저기 것"이 눈으로 구분되게 한다(활성 채움은 애초에 붙지 않는다). */
+.notelist-group[data-other="1"] .tint-dot {
+  opacity: 0.55;
+}
+
+/* 다른 창의 메모 줄에는 ✕가 없으므로(위 주석의 판단) 가리켜도 미저장 점이 자리를
+   내줄 일이 없다 — 제 폭 목록의 `:hover > .dirty-dot { display: none }`을 되돌린다.
+   최근 파일 줄에는 ✕(목록에서 빼기)가 있고 미저장 점은 애초에 없다. */
+.notelist-group[data-other="1"] .notelist-item:hover > .dirty-dot {
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   좁은 창의 **색 점 막대** (사용자 보고 2 — 목록을 숨기지 않고 접는다)
+
+   폭 42: 색 점 8이 가운데 오고 활성 항목은 왼쪽에 2px accent 띠가 선다. 이름은
+   툴팁으로만 보인다(`NoteList`가 `title`을 붙인다). 끌기·가운데 클릭 닫기·떼어내기는
+   제 폭 목록과 **같은 코드**다.
+   --------------------------------------------------------------------------- */
+.notelist[data-rail="1"] {
+  width: 42px;
+}
+
+.notelist[data-rail="1"] .notelist-head {
+  padding: 0 8px;
+}
+
+.notelist[data-rail="1"] .notelist-scroll {
+  padding: 0 5px;
+}
+
+/* 막대의 `다른 창` 구분선 — 섹션 라벨이 들어갈 폭이 없으므로 hairline 한 줄이다(지시 3). */
+.notelist-rail-sep {
+  height: 1px;
+  flex-shrink: 0;
+  margin: 5px 4px;
+  background: var(--hair);
+}
+
+.notelist[data-rail="1"] .notelist-item {
+  position: relative;
+  height: 28px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+
+/* 활성 표시 — 이름이 없으니 채움만으로는 약하다(시안 R5List의 활성 채움 + 띠). */
+.notelist[data-rail="1"] .notelist-item[data-active="1"]::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+/* 막대에는 ✕가 없으므로 가리켜도 미저장 점이 자리를 내줄 일이 없다
+   (제 폭 목록의 `.notelist-item:hover > .dirty-dot { display: none }`을 되돌린다). */
+.notelist[data-rail="1"] .notelist-item:hover > .dirty-dot {
+  display: block;
+}
+
+/* 미저장 점은 색 점 옆에 둘 자리가 없다 → 오른쪽 위 구석에 작게. */
+.notelist[data-rail="1"] .dirty-dot {
+  position: absolute;
+  right: 3px;
+  top: 4px;
+  width: 5px;
+  height: 5px;
+}
+
+/* ---------------------------------------------------------------------------
+   위 줄 (시안 R5, 36px — 자기 배경 없음: 창의 종이색이 그대로 보인다)
+   --------------------------------------------------------------------------- */
+.titlebar {
+  height: var(--title-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 10px;
+}
+
+.titlebar-drag {
+  flex-grow: 1;
+  align-self: stretch;
+  /* 왼쪽 빈 곳이 먼저 0까지 줄어든다 — 그래야 테이프 자리가 가운데에 남는다. */
+  min-width: 0;
+}
+
+/* 테이프가 앉을 칸(시안 Pin: 56 + 좌우 8). 보이지 않고 자리만 잡는다. */
+.tape-slot {
+  flex: 0 0 auto;
+  width: 72px;
+  align-self: stretch;
+}
+
+/* 오른쪽 빈 곳 — 폭이 고정이라 `.tape-slot`이 창 가운데에 온다.
+   창 버튼 ─□✕ = 34×3 = 102, 테이프 칸의 절반 = 36 → 50% − 138. */
+.titlebar-drag-right {
+  flex: 0 0 auto;
+  width: max(0px, calc(50% - 138px));
+}
+
+/* 오버레이에서도 위 줄은 **통째로 불투명**하게 남는다(원본과 같다). 빈 곳이 클릭 통과
+   영역이면 창을 끌 수도, 더블클릭으로 최대화할 수도 없기 때문이다. `data-hit`은
+   `TitleBar`가 줄 전체에 붙이고, 위 모서리는 창 바깥 반지름(8)과 맞춘다.
+   메모 목록을 켜면 이 줄의 왼쪽은 창 가장자리가 아니므로(패널이 있다) 왼쪽 모서리는
+   둥글게 하지 않는다 — `.main`이 첫 자식일 때만, 즉 목록이 없을 때만 둥글다. */
+.win[data-overlay="1"] .titlebar {
+  background: var(--bar);
+  border-top-right-radius: var(--win-radius);
+}
+
+.win[data-overlay="1"] > .main:first-child .titlebar {
+  border-top-left-radius: var(--win-radius);
+}
+
+/* 목록 버튼 — 위 줄(비활성 모양)과 패널 머리(활성 모양)가 같은 클래스를 쓴다. */
+.list-toggle {
+  border: 0;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-chip);
+  color: var(--dim);
+}
+
+.list-toggle[data-active="1"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.list-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* 알약 탭이 사는 스크롤 영역.
+   넘침 규칙(원본 `LayoutTabs`): **먼저 줄이고**(알약이 84까지 좁아지며 이름이 `…`로
+   잘린다) 그래도 모자라면 이 영역이 스크롤되고 `◀ ▶`가 나온다. `+`와 화살표는 이
+   영역 **밖**이라 좁은 창에서도 스크롤되어 사라지지 않는다.
+   `min-width: 0`이 있어야 flex 자식이 내용보다 작아질 수 있다. */
+.tab-strip {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+/* 넘칠 때만 보이는 화살표. 알약 높이에 맞춘 좁은 칩이다. */
+.tab-arrow {
+  border: 0;
+  width: 20px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: var(--bg-chip);
+  color: var(--dim);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.tab-arrow:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* 알약 탭 */
+.tab-pill {
+  border: 0;
+  height: 26px;
+  /* 줄어들 수 있다(넘침 규칙). 84px은 원본의 `kTabMinWidthDip`과 같은 바닥이다. */
+  flex: 0 1 auto;
+  min-width: 84px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12px;
+  background: var(--bg-chip);
+  color: var(--dim);
+  max-width: 180px;
+  /* 끌어서 순서를 바꾸는 동안 글자가 선택되지 않게. */
+  user-select: none;
+  touch-action: none;
+}
+
+/* 스크롤 영역 끝에서 **반쯤 잘려 보이는** 알약은 숨긴다(사용자 보고 3).
+   `visibility`라서 **자리는 그대로 남는다** — 끌어서 순서 바꾸기의 좌표 계산이
+   달라지지 않고, `◀ ▶`를 누르면 그 알약이 온전한 모습으로 나타난다.
+   어느 알약을 숨길지는 `lib/tabStrip.ts`가 정한다. */
+.tab-pill[data-clipped="1"] {
+  visibility: hidden;
+}
+
+.tab-pill > span:not([class]) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 창을 넘어 끌어온 탭이 들어갈 자리 — 2px accent 선.
+   줄 **안**의 순서 바꾸기에는 표시가 없다(결과가 이미 화면에 있다). 창을 넘는 끌기는
+   결과가 아직 다른 창에 없으므로 어디에 놓이는지 보여야 한다(지시 5).
+   알약 앞에 놓이는 경우는 `::before`로, 맨 끝은 `.drop-mark` 요소로 그린다.
+   `position: relative`가 아니어도 되게 알약 바깥(간격 4px 가운데)에 띄운다. */
+.tab-pill[data-drop="before"] {
+  position: relative;
+}
+
+.tab-pill[data-drop="before"]::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.tab-strip > .drop-mark {
+  width: 2px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.notelist-item[data-drop="before"] {
+  position: relative;
+}
+
+.notelist-item[data-drop="before"]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: -2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.notelist-items > .drop-mark {
+  display: block;
+  height: 2px;
+  margin: 0 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.tab-pill[data-active="1"] {
+  background: var(--hover);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tab-pill:hover:not([data-active="1"]) {
+  background: var(--hover);
+}
+
+.tint-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* 색 없음 = 빈 동그라미 */
+.tint-dot[data-empty="1"] {
+  border: 1px solid var(--dim);
+}
+
+/* 탭마다 붙는 닫기 ✕ (Windows 11 메모장과 같은 규칙).
+   알약(26·r13) **안** 오른쪽, 글자는 10px dim, ✕ 자체를 가리키면 작은 원형 hover 채움.
+   자리는 늘 차지하고 보임새만 바뀐다 — 가리킬 때 알약 폭이 흔들리면 안 된다(메모장도 그렇다).
+   오른쪽 패딩 10에서 2px 당겨 r13 곡선 안에 원이 들어오게 한다. */
+.tab-close {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-right: -2px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--dim);
+  /* 안 보이는 동안은 눌리지도 않아야 한다. */
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 활성 탭은 **늘**, 비활성 탭은 **가리킬 때**. */
+.tab-pill[data-active="1"] > .tab-close,
+.tab-pill:hover > .tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ✕ 자체를 가리킬 때의 원형 채움. ✕가 보이는 상황은 "활성 알약"과 "가리킨 알약"
+   둘뿐이고 **둘 다 이미 hover 색**이라, 원이 보이려면 한 칸 더 올려야 한다 →
+   hairline. 글자는 text로. */
+.tab-close:hover {
+  background: var(--hair);
+  color: var(--text);
+}
+
+/* 메모 목록 항목: **가리킬 때만** ✕가 나오고, 미저장 점과 같은 자리라 점을 대신한다. */
+.notelist-item > .tab-close {
+  margin-right: -3px;
+}
+
+.notelist-item:hover > .tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notelist-item:hover > .dirty-dot {
+  display: none;
+}
+
+/* 미저장 점 */
+.dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.tab-new {
+  border: 0;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: var(--bg-chip);
+  color: var(--dim);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tab-new:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.caption-btn {
+  width: 34px;
+  height: var(--title-h);
+  line-height: var(--title-h);
+  text-align: center;
+  font-size: 11px;
+  color: var(--dim);
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: var(--bg-chip);
+}
+
+.caption-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.caption-btn[data-close="1"]:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+/* ---------------------------------------------------------------------------
+   편집 영역
+   시안 R5: 여백 위 18 / 좌우 32. 아래는 떠 있는 도구 줄(38 + 아래 여백 14)에
+   가리지 않도록 넉넉히 둔다. 본문 15px · 줄 간격 1.75 (시안 A).
+
+   두 엔진이 들어온다(`data-engine`):
+     markdown → ProseMirror. 이 컨테이너가 스크롤한다.
+     plain    → CodeMirror 6. **자기 스크롤 영역을 가져야** 보이는 줄만 그린다
+                (5MB 로그를 여는 근거 — 설계 문서 §2-4). 그래서 여백과 스크롤을
+                CodeMirror 쪽(`PlainHost`의 theme)으로 넘긴다.
+   --------------------------------------------------------------------------- */
+.editor {
+  flex-grow: 1;
+  min-width: 0;
+  /* 여백은 **편집 요소 자신**(`.pm` / `.cm-content`)이 갖는다 — 사용자 보고 1:
+     여백을 이 스크롤 상자에 두면 그 띠가 contenteditable **밖**이라 거기를 눌러도
+     커서가 놓이지 않았다. 아래 `.editor .pm`의 `min-height`와 같은 이유다. */
+  /* 본문 15px × 확대 배율(`lib/zoom.ts` — Ctrl+휠 / Ctrl+`+`·`-`·`0`).
+     **여기 한 곳만** 배율을 탄다: 제목·표·줄 간격은 아래에서 `em`과 무차원 값으로
+     적어 두어 같이 커지고, 창 UI(도구 줄·상태 글자)는 영향을 받지 않는다 —
+     메모장도 본문만 키운다. `--zoom`은 `App`이 `:root`에 심는다. */
+  font-size: calc(var(--doc-size, 15px) * var(--zoom, 1));
+  /* 마크다운 탭 본문 글꼴. 기본값은 `:root`의 `--doc-font`(= 지금까지의 `body` 글꼴)라
+     `기본`에서는 모습이 그대로다. 일반 텍스트 탭은 `--mono-font`를 쓴다. */
+  font-family: var(--doc-font);
+  line-height: 1.75;
+  color: var(--text);
+  overflow-y: auto;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+/* 일반 텍스트: 여백·스크롤·"빈 곳 클릭"은 CodeMirror 쪽이다 — `.cm-content`가 같은
+   `--edit-pad-*` 여백을 갖고(`PlainHost`의 theme) 기본 테마의 `min-height: 100%` +
+   `flex-grow`로 스크롤 영역을 꽉 채우므로, 마지막 줄 아래·줄 오른쪽 빈 곳을 눌러도
+   CodeMirror가 가장 가까운 자리에 커서를 놓는다. */
+.editor[data-engine="plain"] {
+  overflow: hidden;
+  display: flex;
+}
+
+.editor[data-engine="plain"] > * {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+/* ProseMirror 본문 — `pre-wrap`은 선택이 아니다(줄 끝 공백·탭이 보존되어야 한다).
+   **빈 곳을 눌러도 커서가 놓이게**(사용자 보고 1 — Windows 메모장과 같다: 아래쪽 빈
+   곳은 문서 끝, 줄 오른쪽 빈 곳은 그 줄 끝) 두 가지를 여기서 한다.
+     · 여백을 `.editor`가 아니라 **이 요소**가 갖는다 → 여백 띠도 편집 요소 안이다.
+     · `min-height: 100%` → 글이 짧아도 편집 요소가 스크롤 영역을 **꽉 채운다**.
+       (전에는 높이가 내용만큼이라 마지막 줄 아래는 편집 요소 밖이었다.)
+   오버레이의 클릭 통과는 영향을 받지 않는다: 통과 판정은 DOM이 아니라 Rust가 받는
+   **글자 줄 사각형 + `data-hit`**이고(`overlayHitRects.ts`) `.pm`은 둘 다 아니다. */
+.editor .pm {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 100%;
+  padding: var(--edit-pad-top) var(--edit-pad-x) var(--edit-pad-bottom);
+}
+
+.editor .pm p,
+.editor .pm h1,
+.editor .pm h2,
+.editor .pm h3,
+.editor .pm h4,
+.editor .pm h5,
+.editor .pm h6 {
+  margin: 0;
+  /* 큰 문서 대책(§11): 화면 밖 블록의 레이아웃·페인트를 건너뛴다. DOM 노드는 남으므로
+     선택·찾기·IME가 그대로 동작한다. Chromium 85+ = WebView2 Win10/11 모두 OK. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+}
+
+/* 제목은 **크기만** 다르다 — 굵기·색·줄 간격은 본문과 같다(원본 규칙).
+   본문 15px × 2.5 / 2.25 / 2.0 / 1.75 / 1.5 / 1.25 (설계 문서 §3-1:
+   원본의 28/25/22pt ≒ 37.3/33.3/29.3px과 2% 안쪽).
+   **`em`으로 적는다**(전에는 37.5px처럼 절대값이었다): 배수는 그대로이고
+   확대/축소(`.editor`의 `--zoom`)가 제목에도 같은 비율로 걸린다. */
+.editor .pm h1 { font-size: 2.5em; font-weight: inherit; }
+.editor .pm h2 { font-size: 2.25em; font-weight: inherit; }
+.editor .pm h3 { font-size: 2em; font-weight: inherit; }
+.editor .pm h4 { font-size: 1.75em; font-weight: inherit; }
+.editor .pm h5 { font-size: 1.5em; font-weight: inherit; }
+.editor .pm h6 { font-size: 1.25em; font-weight: inherit; }
+
+/* 글머리 기호 목록 — 승인된 시안 L1.
+   기호는 **CSS가 그린다**(`::before`): 문서 모델에 넣으면 저장 바이트에 섞이고 선택·찾기에도
+   걸린다. 단계마다 • ◦ ▪ 이고 색은 `--dim`(시안 L1).
+   줄 간격·받침(`.backing`)은 **항목의 단락**이 받으므로 위 `.editor .pm p` 규칙이 그대로
+   걸린다 — 목록 안에서도 줄마다 같은 모양이다. */
+.editor .pm ul {
+  margin: 0;
+  padding-left: 1.5em;
+  list-style: none;
+}
+
+.editor .pm li {
+  position: relative;
+}
+
+.editor .pm li::before {
+  content: "•";
+  position: absolute;
+  left: -1.1em;
+  color: var(--dim);
+  /* 받침 띠(줄 상자 높이)와 기호가 서로 밀지 않게 — 기호는 자리만 차지하지 않는다. */
+  pointer-events: none;
+}
+
+.editor .pm ul ul > li::before { content: "◦"; }
+.editor .pm ul ul ul > li::before { content: "▪"; }
+
+/* 형광펜 — 시안 A의 칠한 글자 그대로 (배경색 + #14171A, r3, 좌우 2). */
+.editor .pm mark {
+  color: #14171a;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* 표 — 격자 칸 r4 + 1px 표 테두리 색 (MIGRATION_HANDOFF §3의 모서리/색 표).
+   시안에 편집 영역 안의 표가 없어 칸 간격은 2px로 두었다(칸마다 r4가 보이게). */
+.editor .pm table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  margin: 2px 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.editor .pm th,
+.editor .pm td {
+  border: 1px solid var(--table-border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-weight: inherit;
+  text-align: left;
+  vertical-align: top;
+  min-width: 2em;
+}
+
+/* 선택된 칸 — prosemirror-tables가 붙이는 클래스. */
+.editor .pm .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--hover);
+  pointer-events: none;
+}
+
+.editor .pm .selectedCell {
+  position: relative;
+}
+
+/* 표가 **통째로** 골라진 상태 — 표 바로 뒤에서 Backspace, 또는 표 바로 앞에서 Delete를
+   한 번 누르면 이 모양이 되고 한 번 더 누르면 지워진다(`mdCommands.selectAdjacentTable`).
+   실제로는 `prosemirror-tables`가 그 `NodeSelection`을 **표 전체 칸 선택**으로 바꾸므로
+   위의 `.selectedCell` 규칙이 그려 준다. 이 규칙은 그러지 않는 경우를 위한 보험이고,
+   색도 같은 선택 색(`--hover`)이라 어느 쪽이든 같은 모양이다. */
+.editor .pm table.ProseMirror-selectednode th,
+.editor .pm table.ProseMirror-selectednode td {
+  background: var(--hover);
+}
+
+.editor .pm .column-resize-handle {
+  display: none;
+}
+
+/* 글자 뒤 배경(text backing) — 원본 수정 6.
+   반투명(불투명도 50% 이하)이나 오버레이에서 글자 뒤에만 옅은 받침을 깐다.
+   색은 `displayMode.ts`가 `--text-backing`에 넣는다(형광펜 색을 종이색에
+   20/22%만 남긴 값 = 원본 `BackingTint()`).
+
+   원본은 RichEdit의 **글자 배경색**으로 칠해 글자 줄에만 붙었다. 여기서도 그렇게
+   **글자에 붙여** 칠한다: 범위는 두 엔진의 장식(decoration)이 `.backing` 하나로
+   정하고(`MarkdownHost`의 `backingPlugin` · `PlainHost`의 `backingLines`),
+   `box-decoration-break: clone`이 **접힌 줄마다** 상자를 하나씩 만든다.
+   **문서 모델에는 들어가지 않으므로** 저장 바이트에 영향이 0이고 수정 표시도 안 생긴다
+   (설계 문서 §9-2, MIGRATION_HANDOFF §7).
+
+   전에는 블록(단락 · CodeMirror의 줄)에 `width: fit-content`로 칠했는데, 저장된
+   `.txt`처럼 **한 줄이 길어 접히면** fit-content가 결국 쓸 수 있는 폭을 꽉 채워서
+   줄 끝의 빈 자리까지 큰 사각형으로 칠해졌다(사용자 보고). 인라인은 그 문제가 없다. */
+.win[data-backing="1"] .editor .backing {
+  background: var(--text-backing);
+  border-radius: 6px;
+  /* 받침 띠를 **줄 상자**(줄 간격 1.75) 높이로 — 인라인의 세로 패딩은 줄 높이를
+     바꾸지 않으므로 글의 배치·줄 수·커서 자리가 그대로다. 값은 `displayMode.ts`가
+     글꼴을 실제로 재서 넣는다(본문 글꼴과 고정폭 글꼴이 다르다). */
+  padding-top: var(--backing-bleed);
+  padding-bottom: var(--backing-bleed);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.win[data-backing="1"] .editor .cm-line .backing {
+  padding-top: var(--backing-bleed-mono);
+  padding-bottom: var(--backing-bleed-mono);
+}
+
+/* 표만은 **블록 하나로** 칠한다(사용자 보고: 오버레이에서 표가 짤림 — `fit-content`가
+   `table-layout: fixed`의 `width: 100%`를 덮으면 폭이 머리 행만 보고 정해져 표가
+   짜부라졌다). 받침색만 깔고 폭은 표 자신의 규칙(`100%`)에 맡긴다. 표 안의 칸 글자는
+   장식을 받지 않는다 — 칸마다 따로 칠하면 격자가 얼룩덜룩해진다. */
+.win[data-backing="1"] .editor .pm > table {
+  background: var(--text-backing);
+  border-radius: 6px;
+}
+
+/* 형광펜이 칠해진 글자에서는 **형광펜 색만** 보여야 한다(원본 규칙: 펜 배경색 +
+   글자색 #14171A — 사용자 피드백 1).
+
+   원인: 받침 띠는 **줄 상자**(줄 간격 1.75em) 높이인데, `mark`의 배경은 인라인 상자,
+   즉 **글꼴 상자**(Segoe UI ≈ 1.33em)만 칠한다. 그 차이(반 줄간격 ≈ 0.21em = 15px
+   본문에서 위아래 3px씩)가 칠한 글자 위·아래로 비쳐 보였다. 받침이 인라인(`.backing`)이
+   된 뒤에도 같은 값으로 패딩을 주므로 둘의 높이가 정확히 맞는다.
+
+   고침: 받침이 켜진 동안만 `mark`에 세로 패딩을 반 줄간격만큼 준다. 인라인 요소의
+   세로 패딩은 **줄 높이를 바꾸지 않으므로** 글의 배치·줄 수·커서 자리가 그대로이고,
+   문서 모델에도 손대지 않으니 저장 바이트·수정 표시에 영향이 0이다. 값은
+   `displayMode.ts`가 실제 글꼴을 재서 `--backing-bleed`에 넣는다. */
+.win[data-backing="1"] .editor .pm mark {
+  padding-top: var(--backing-bleed);
+  padding-bottom: var(--backing-bleed);
+}
+
+/* 스크롤 막대: 틀·화살표 없음, 둥근 막대만. 마우스가 창 위에 있을 때만 보인다.
+   일반 텍스트 탭에서 실제로 구르는 것은 `.editor` 자신이 아니라 CodeMirror의
+   `.cm-scroller`라서(사용자 보고: 평문 탭만 네모난 기본 막대가 보였다) 같은
+   규칙에 그 선택기도 같이 넣는다. CodeMirror 기본 테마와 `PlainHost`의 테마는
+   `scrollbar-width`/`scrollbar-color`를 건드리지 않으므로(확인) 여기 규칙이 산다. */
+.editor::-webkit-scrollbar,
+.editor .cm-scroller::-webkit-scrollbar,
+.notelist-scroll::-webkit-scrollbar {
+  width: 14px;
+}
+
+.editor::-webkit-scrollbar-track,
+.editor .cm-scroller::-webkit-scrollbar-track,
+.notelist-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor::-webkit-scrollbar-thumb,
+.editor .cm-scroller::-webkit-scrollbar-thumb,
+.notelist-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 7px;
+  border: 4px solid transparent;
+  background-clip: padding-box;
+}
+
+.win[data-hover="1"] .editor::-webkit-scrollbar-thumb,
+.win[data-hover="1"] .editor .cm-scroller::-webkit-scrollbar-thumb,
+.win[data-hover="1"] .notelist-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--dim) 55%, transparent);
+  background-clip: padding-box;
+}
+
+.win[data-hover="1"] .editor::-webkit-scrollbar-thumb:hover,
+.win[data-hover="1"] .editor .cm-scroller::-webkit-scrollbar-thumb:hover,
+.win[data-hover="1"] .notelist-scroll::-webkit-scrollbar-thumb:hover {
+  border-width: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   떠 있는 도구 줄 (시안 R5 — 높이 38, r14, bar, 1px hairline, 아래 14, 가운데)
+   --------------------------------------------------------------------------- */
+.dock {
+  position: absolute;
+  /* 가운데 — **`left: 50%` + `transform`을 쓰지 않는다**(사용자 보고 2). 그 방식은
+     줄어들 수 있는 폭이 "창의 절반"이어서 창이 644 이하일 때 오른쪽 끝(⚙)이 12px
+     잘렸다. `left: 0; right: 0` + 자동 바깥 여백이면 쓸 수 있는 폭이 **창 전체**이고
+     보이는 자리·크기는 똑같다. */
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: max-content;
+  bottom: 14px;
+  z-index: 15;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 14px;
+  background: var(--bg-bar);
+  border: 1px solid var(--hair);
+  /* 좁은 창: 자리가 없으면 끝에서부터 `⋯`로 **접는다**(승인된 시안 N2b —
+     `lib/dockFit.ts`). 예전의 "안쪽을 가로로 스크롤" 방식은 막대도 화살표도 없어
+     ◐·⚙가 말없이 잘렸다. */
+  max-width: calc(100% - 16px);
+}
+
+/* 마우스가 창 밖이면 사라진다. 메뉴·팝오버가 열려 있거나 도구 줄에 초점이 있으면
+   `data-dock="1"`이 유지된다(판단은 App).
+   **`display: none`이 아니라 `opacity: 0`이다**(사용자 보고 4): 지워 버리면 Tab이
+   도구 줄의 버튼을 모두 건너뛰어 키보드만으로는 ☰에 닿을 길이 없었다. */
+.win[data-dock="0"] .dock {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Tab으로 들어오면 그 자리에서 다시 보인다 — `focusin`을 받은 React가 `data-dock`을
+   바꾸기 전의 한 프레임도 비지 않게 CSS로도 걸어 둔다. */
+.win[data-dock="0"] .dock:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* `⋯`(시안 N2b) — 접힌 것이 있을 때만 나온다. 눈에 띄게 hover 채움을 기본으로 둔다. */
+.dock-more {
+  font-size: 13px;
+  background: var(--hover);
+}
+
+.dock-btn {
+  border: 0;
+  width: 30px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.dock-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+/* 눌린 모양 — 커서 위치의 서식 상태(굵게·제목·펜 모드). */
+.dock-btn[data-on="1"] {
+  background: var(--hover);
+}
+
+/* 일반 텍스트 탭에서 서식 버튼은 흐려지고 눌리지 않는다(사용자 결정 3). */
+.dock-btn:disabled {
+  color: var(--dim);
+  opacity: 0.45;
+}
+
+.dock-bold {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 취소선 버튼 — 옆 `B`와 같은 글자 규칙(`.dock-bold`)에 가운데 가로선만 더한다.
+   선 굵기·색은 글자와 같이 움직이므로 흐려질 때(일반 텍스트 탭)도 따라간다. */
+.dock-strike {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+/* 글머리 기호 버튼 — `•≡`. 두 글자를 30px 안에 넣으려면 `B`·`S`보다 작아야 한다.
+   `letter-spacing: 0`으로 두 기호를 붙여 하나의 아이콘처럼 보이게 한다(시안 L1). */
+.dock-bullet {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.dock-head {
+  width: auto;
+  padding: 0 7px;
+  font-weight: 600;
+}
+
+.dock-dim {
+  color: var(--dim);
+}
+
+.dock-opacity {
+  width: auto;
+  padding: 0 7px;
+  gap: 5px;
+  color: var(--dim);
+}
+
+.dock-pen-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+}
+
+.dock-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--hair);
+  flex-shrink: 0;
+}
+
+/* 불투명도 슬라이더 (110 / 트랙 4 / 손잡이 14) — 팝오버 안으로 옮겨 왔다. */
+.opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 오버레이가 켜져 있으면 슬라이더 줄은 흐리고 눌리지 않는다(시안 ③). */
+.opacity-row[data-off="1"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.opacity-row-label {
+  flex-grow: 1;
+}
+
+.opacity-row-title {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.opacity-row-key {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.opacity-row-label > .opacity-row-key {
+  margin-top: 1px;
+}
+
+.opacity-hairline {
+  height: 1px;
+  background: var(--hair);
+}
+
+/* 트랙은 시안대로 4px이지만 그대로는 잡기 어려우니 보이지 않는 20px 높이의
+   손잡이 영역으로 감싼다 (모양은 시안과 동일). */
+.slider-wrap {
+  width: 110px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.slider {
+  width: 110px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hair);
+  position: relative;
+}
+
+.slider-fill {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.slider-thumb {
+  position: absolute;
+  top: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   상태 글자 (시안 R5 — 오른쪽 14 / 아래 24, 11px dim)
+   --------------------------------------------------------------------------- */
+.status-text {
+  position: absolute;
+  right: 14px;
+  bottom: 24px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--bg-chip);
+  pointer-events: none;
+}
+
+/* 떠 있는 도구 줄과 겹치면 숨는다(판단: `lib/dockFit.ts`, 측정: `App`).
+   **`visibility`여야 한다** — `display: none`이면 사각형이 0이 되어 "겹치지 않음 →
+   다시 보임 → 겹침"이 끝없이 돈다. */
+.status-text[data-collide="1"] {
+  visibility: hidden;
+}
+
+/* 오버레이 안내는 왼쪽 아래 — 모드를 끄는 단축키를 알려 주는 유일한 자리. */
+.status-overlay {
+  position: absolute;
+  left: 14px;
+  bottom: 24px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--bg-chip);
+  pointer-events: none;
+}
+
+/* 오버레이에서 상태 글자는 작은 불투명 칩으로 남는다 (글자 칩 반지름 6) */
+.win[data-overlay="1"] .status-text,
+.win[data-overlay="1"] .status-overlay {
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   팝업 메뉴 (승인된 시안 Popups.dc.html)
+   팝업 r12 · 패딩 5 · bar · 1px hairline / 행 30 r8 · 패딩 0 10 · 12px /
+   단축키 11px dim 오른쪽 정렬 / 구분선 1px(여백 4 8) / 섹션 라벨 22 · 11px dim.
+   효과(블러·그림자) 없음.
+   --------------------------------------------------------------------------- */
+.popup-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.popup {
+  position: fixed;
+  padding: 5px;
+  border-radius: 12px;
+  background: var(--bar);
+  border: 1px solid var(--hair);
+  outline: none;
+  /* 창이 팝업보다 작을 수 있다(최소 창 크기 없음 — 사용자 피드백 2). 자리 계산
+     (`placeBox`)은 창 안으로 밀어 넣기만 하므로, 그래도 넘치면 여기서 창에 맞춰
+     줄이고 안쪽을 스크롤한다. 하위 메뉴는 `position: fixed`라 잘리지 않는다. */
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+}
+
+/* ◐ 팝오버 — 시안 Pin ③: 폭 236, 안쪽 10 12, 줄 간격 10.
+   `⋯` 팝오버(시안 N2b)는 같은 모양에 팝업 행을 붙인 것이다.
+   **`.popup` 뒤에 있어야 한다** — 앞에 두면 `.popup { padding: 5px }`가 같은
+   특이도로 나중에 와서 안쪽 여백을 덮는다(그래서 ◐ 팝오버가 시안의 10 12이 아니라
+   5였다). */
+.opacity-pop,
+.more-pop {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  outline: none;
+}
+
+/* 명령 줄이 함께 들어가는 빽빽한 모양에서는 줄 간격이 6이다(시안 N2b의 창 240 그림). */
+.more-pop[data-dense="1"] {
+  gap: 6px;
+}
+
+.more-hairline {
+  height: 1px;
+  margin: 0 2px;
+  background: var(--hair);
+}
+
+.popup-row {
+  border: 0;
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.popup-row[data-selected="1"] {
+  background: var(--hover);
+}
+
+.popup-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+/* 시안에 없는데 더한 것: 키보드 초점 테두리. 선택된 행과 초점이 있는 행이 둘 다
+   hover 채움이라 키보드만으로는 어디 있는지 알 수 없다. */
+.popup-row[data-focus="1"] {
+  background: var(--hover);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.popup-row:disabled {
+  color: var(--dim);
+}
+
+.popup-label {
+  flex-grow: 1;
+}
+
+.popup-key,
+.popup-caret {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.popup-heading {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.popup-heading-label {
+  flex-grow: 1;
+}
+
+.popup-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--hair);
+}
+
+/* 라디오 = 10 동그라미 (고르면 accent 채움, 아니면 1px hairline 테두리) */
+.popup-radio {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  border: 1px solid var(--hair);
+}
+
+.popup-radio[data-on="1"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 글꼴 목록(시안 G1)은 이름마다 빈 동그라미를 두지 않는다 — **자리만** 비워 라벨을
+   왼쪽 29px에 맞추고, 고른 글꼴 하나만 동그라미가 보인다. */
+.popup-radio[data-blank="1"][data-on="0"] {
+  border-color: transparent;
+}
+
+/* 따로 구르는 칸 — 설치된 글꼴 목록(시안 G1: 높이 240). 막대는 편집 영역과 같은
+   얇은 막대다. */
+/* 긴 글꼴 이름은 팝업 폭(236)을 넘지 않고 말줄임으로 끊는다. */
+.popup-scroll .popup-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popup-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hair) transparent;
+}
+
+/* 색 네모 = 11 동그라미 (메모지 색 점 / 형광펜 색) */
+.popup-swatch {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+/* `색 없음` = 빈 동그라미(메모 목록·알림 목록의 색 없는 점과 같은 규칙). */
+.popup-swatch[data-none="1"] {
+  border: 1px solid var(--dim);
+  box-sizing: border-box;
+}
+
+/* 체크 = 같은 10px 자리에 ✓ 하나. 비어 있어도 자리를 지켜 라벨이 줄을 맞춘다. */
+.popup-check {
+  width: 10px;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   간략 메뉴 (승인된 시안 C2 — ☰의 하위 메뉴 파일·보기·테마만)
+   줄 26 · 패딩 0 8 · r7 · gap 8 / 구분선 여백 3 6 / 머리 20 ·  패딩 0 8.
+   단축키 글자는 줄에 없다(말풍선 `.popup-tip`).
+   --------------------------------------------------------------------------- */
+.popup[data-compact="1"] .popup-row {
+  height: 26px;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 7px;
+}
+
+.popup[data-compact="1"] .popup-sep {
+  margin: 3px 6px;
+}
+
+.popup[data-compact="1"] .popup-heading {
+  height: 20px;
+  padding: 0 8px;
+}
+
+/* 확대/축소 한 줄 — 라벨 + [−] [배율] [+] (시안 C2). 줄 자체는 누르는 것이 아니라
+   담는 그릇이라 `.popup-row`의 모양만 쓰고 hover 채움은 칸에만 든다. */
+/* 특이도를 `.popup-row`의 hover·초점 규칙보다 높게 잡는다(둘 다 두 조각 이상). */
+.popup .popup-row.popup-zoom {
+  gap: 4px;
+}
+
+.popup-row.popup-zoom:hover,
+.popup-row.popup-zoom[data-focus="1"] {
+  /* 채움은 칸에만 든다 — 줄 전체가 눌리는 것이 아니다. 초점 테두리는 `.popup-row`의
+     규칙에서 그대로 온다. */
+  background: transparent;
+}
+
+.popup-zoom-label {
+  flex-grow: 1;
+  white-space: nowrap;
+}
+
+.popup-zoom-btn,
+.popup-zoom-pct {
+  flex-shrink: 0;
+  height: 20px;
+  border: 0;
+  padding: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.popup-zoom-btn {
+  width: 22px;
+}
+
+.popup-zoom-pct {
+  width: 38px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.popup-zoom-btn:hover,
+.popup-zoom-pct:hover {
+  background: var(--hover);
+}
+
+/* 덩어리(시안 C2의 `테마`) — 작은 라벨 + 컨트롤. 덩어리 사이는 9
+   (`menus.ts`의 `GROUP_GAP`과 같은 값이어야 한다 — 높이 계산이 이 값을 센다). */
+.popup-group-label {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.popup-group + .popup-group {
+  margin-top: 9px;
+}
+
+/* 세그먼트 버튼 [다크|라이트|시스템] — 바탕 field + 1px hairline r8, 칸 22 r6. */
+.popup-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--field);
+  border: 1px solid var(--hair);
+  box-sizing: border-box;
+}
+
+.popup-seg-cell {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.popup-seg-cell[data-on="1"] {
+  background: var(--hover);
+  font-weight: 600;
+}
+
+.popup-seg-cell[data-focus="1"] {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* 메모지 색 점 5개 — 20px, 고른 점은 bar 2px + accent 2px 링(시안 C2). */
+.popup-dots {
+  display: flex;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.popup-dot {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+/* `색 없음` = 빈 동그라미(메뉴의 색 네모와 같은 규칙). */
+.popup-dot[data-none="1"] {
+  background: transparent;
+  border: 1px solid var(--dim);
+}
+
+.popup-dot[data-on="1"] {
+  box-shadow:
+    0 0 0 2px var(--bar),
+    0 0 0 4px var(--accent);
+}
+
+.popup-dot[data-focus="1"] {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 단축키 말풍선 — 줄 오른쪽 끝 아래(시안 C2). 자리는 `lib/menuTip.ts`가 잰다. */
+.popup-tip {
+  position: fixed;
+  z-index: 60;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--field);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   표 크기 고르기 (8×8) — 껍데기는 팝업과 같은 규칙(r12 · bar · 1px hairline),
+   안쪽 수치는 원본 `TableGrid` 그대로: 칸 18 · 간격 3 · 여백 10 · 글자 줄 18.
+   --------------------------------------------------------------------------- */
+.table-grid {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  outline: none;
+}
+
+.table-grid-cells,
+.table-grid-row {
+  display: flex;
+}
+
+.table-grid-cells {
+  flex-direction: column;
+}
+
+.table-grid-cell {
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+}
+
+.table-grid-cell[data-on="1"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.table-grid-label {
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dim);
+}
+
+/* ---------------------------------------------------------------------------
+   알림 예약 창 (승인된 시안 Reminder.dc.html — 왼쪽 두 열)
+   카드 340 · 패딩 12 · r12 · bar · 1px hairline(`.popup`이 r12·bar·hairline을 준다),
+   미리보기 field r8 패딩 9 11 · 13px / 휠 칸: 머리말 18 11px dim · 앞뒤 값 26 13px dim ·
+   선택 값 34 18px 600(**초점 칸만** hover 채움 r10) / 아래 줄 12px dim + 버튼 30 r10.
+   --------------------------------------------------------------------------- */
+.remind-pick {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  outline: none;
+}
+
+.remind-preview {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--field);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  /* 선택한 글은 160자까지라 여러 줄이 될 수 있다. 카드 높이를 고정으로 두려고
+     (자리 계산에 측정이 없다는 팝업 가족의 규칙) **한 줄로 자른다** — 시안의 글도
+     한 줄이라 보이는 모양은 같다. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remind-wheels {
+  display: flex;
+  justify-content: center;
+  /* 창이 카드보다 좁으면 카드가 줄어든다(`RemindPick`이 폭을 깎는다) — 그때 칸 다섯 개는
+     찌그러지지 않고 이 줄이 가로로 스크롤된다. 막대는 숨긴다. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.remind-wheels::-webkit-scrollbar {
+  display: none;
+}
+
+.remind-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  /* 휠·끌기가 글자 선택으로 바뀌면 값이 바뀌는 대신 글자가 반전된다. */
+  user-select: none;
+  touch-action: none;
+}
+
+.remind-head {
+  height: 18px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* 앞뒤 값 — 시안은 칸 폭을 꽉 채운 줄이다. 누르면 그 값으로 간다(조작 네 가지 중
+   `흐린 값 클릭`)이라 과녁도 줄 전체여야 한다. */
+.remind-side {
+  border: 0;
+  padding: 0;
+  width: 100%;
+  height: 26px;
+  line-height: 26px;
+  text-align: center;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.remind-value {
+  height: 34px;
+  line-height: 34px;
+  text-align: center;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 초점이 있는 칸 하나만 채워진다(시안: 년 칸). */
+.remind-value[data-focus="1"] {
+  background: var(--hover);
+}
+
+.remind-sepchar {
+  flex-shrink: 0;
+  text-align: center;
+  padding-top: 52px;
+  font-size: 15px;
+  color: var(--dim);
+}
+
+.remind-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remind-line {
+  flex-grow: 1;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+/* 지난 시각 — 경고색 문구(시안 가운데 열). */
+.remind-line[data-warn="1"] {
+  color: var(--warn);
+}
+
+.remind-btn {
+  border: 0;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.remind-btn[data-accent="1"] {
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.remind-btn:disabled {
+  font-weight: 600;
+  background: var(--hover);
+  color: var(--dim);
+}
+
+/* ---------------------------------------------------------------------------
+   예약 목록 (시안 Reminder.dc.html — 오른쪽 열)
+   카드 360 · 패딩 5 · 머리 22(11px dim) / 줄 44 · r8 · 패딩 0 6 0 10 · 간격 10 /
+   점 8 · 내용 12px 한 줄 · 둘째 줄 11px dim / ✕ 24 r10 field — **가리킨 줄에만**.
+   --------------------------------------------------------------------------- */
+.remind-list {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.remind-list-head {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+/* 예약이 아주 많으면(원본에는 스크롤이 없었다) 화면을 넘기는 대신 줄 영역이 구른다. */
+.remind-list-rows {
+  overflow-y: auto;
+}
+
+.remind-row {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 10px;
+  border-radius: 8px;
+}
+
+.remind-row:hover,
+.remind-row[data-focus="1"] {
+  background: var(--hover);
+}
+
+.remind-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* 색 없는 탭 = 빈 동그라미(테마 메뉴의 `색 없음`과 같은 규칙). */
+.remind-dot[data-none="1"] {
+  border: 1px solid var(--dim);
+  box-sizing: border-box;
+}
+
+.remind-row-body {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.remind-row-text {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remind-row-meta {
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remind-x {
+  border: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* 자리는 늘 지키고 **보이기만** 가리킨 줄에서 — 글자가 좌우로 흔들리지 않는다. */
+  visibility: hidden;
+}
+
+.remind-row:hover .remind-x,
+.remind-row[data-focus="1"] .remind-x {
+  visibility: visible;
+}
+
+/* ---------------------------------------------------------------------------
+   오버레이 hover 외곽선 (원본 수정 9)
+   포인터가 창 사각형 안에 있을 때만 창 둘레에 1px 반투명 외곽선.
+   색은 팔레트가 아니라 고정값 — 임의의 바탕화면 위에서 보여야 하기 때문.
+   --------------------------------------------------------------------------- */
+.overlay-outline {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  border: 1px solid rgba(120, 128, 140, 0.45);
+  border-radius: var(--win-radius);
+  display: none;
+}
+
+.win[data-overlay="1"][data-overlay-hover="1"] .overlay-outline {
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   테이프(항상 위) — 승인된 시안 `Pin.dc.html`. 수치 그대로.
+   56×18 · rotate(-2deg) · 창 위 가장자리(top 0) 가로 가운데.
+     꺼짐 = 점선(dim) 윤곽, **위쪽 테두리 없음**, 아래 모서리 r3, 배경 없음
+     켜짐 = accent 45% 채움, r2, 테두리 없음
+   `position: fixed`라 평소(위 줄 36 가운데에 걸침)와 고정 중(종이가 8px 내려가고
+   테이프가 그 위 가장자리에 걸침)이 **같은 자리**다. `.win`에는 변형·필터가 없으므로
+   그 `overflow: hidden`이 고정 위치 자손을 자르지 않는다.
+   --------------------------------------------------------------------------- */
+.tape {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  z-index: 24;
+  width: 56px;
+  height: 18px;
+  padding: 0;
+  transform: translateX(-50%) rotate(-2deg);
+  background: transparent;
+  border: 1px dashed var(--dim);
+  border-top: 0;
+  border-radius: 0 0 3px 3px;
+}
+
+.tape[data-on="1"] {
+  border: 0;
+  border-radius: 2px;
+  /* 시안의 `rgba(accent, .45)`. */
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* 좁은 창에서는 위 줄 가운데에 테이프가 들어갈 자리가 없다(알약·+·창 버튼이 먼저다).
+   그때는 **고정 중에만** 보인다 — 고정 중에는 다른 UI가 하나도 없어 겹칠 것이 없고,
+   테이프가 사라지면 고정을 풀 길이 없어진다.
+
+   **420까지 넓혔다**(사용자 보고 3): 테이프 자리 72 + 가운데 맞추기용 오른쪽 빈 곳
+   (최대 72)이 알약보다 먼저 자리를 먹어 좁은 창에서 알약이 잘렸다. 테이프를 쓰지
+   않는 동안에는 그 두 칸을 알약에 **먼저 양보한다** — 폭 420에서 쓸 수 있는 알약
+   자리가 48 → 192로 늘어난다. */
+@media (max-width: 420px) {
+  .win:not([data-pinned="1"]) .tape {
+    display: none;
+  }
+
+  .tape-slot {
+    width: 0;
+  }
+
+  /* 테이프가 없으면 가운데를 맞출 것도 없다 — 이 빈 칸의 유일한 구실이 그것이다. */
+  .titlebar-drag-right {
+    display: none;
+  }
+}
+
+/* 고정 중(테이프 켬) — 종이가 위에서 8px 내려가고 그 위 8px은 투명하게 남는다.
+   테이프 말고 모든 UI는 `App`이 **아예 그리지 않는다**: CSS로 숨기면 오버레이의
+   클릭 통과 사각형(`data-hit`)에는 그대로 남기 때문이다. */
+.win[data-pinned="1"] {
+  margin-top: 8px;
+  height: calc(100% - 8px);
+  /* 위 줄(36)이 없으니 편집 여백은 시안 ②의 `22px 32px`. 아래쪽은 도구 줄이 없어
+     가릴 것이 없으므로 위와 같은 값으로 줄인다. */
+  --edit-pad-top: 22px;
+  --edit-pad-bottom: 22px;
+}
+
+/* 최대화 상태에서는 창이 화면을 꽉 채워야 하므로 내리지 않는다. */
+.win[data-pinned="1"][data-maximized="1"] {
+  margin-top: 0;
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+   창 가장자리 리사이즈 — decorations:false라 직접 구현 (가장자리 6 / 모서리 12)
+   --------------------------------------------------------------------------- */
+.resize-edge {
+  position: absolute;
+  z-index: 10;
+}
+
+.win[data-maximized="1"] .resize-edge,
+.win[data-overlay="1"] .resize-edge {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   찾기/바꾸기 카드 (승인된 시안 FindBar.dc.html — F2)
+   편집 영역 오른쪽 위: 오른쪽 12 · 위 12 · 폭 268 · 패딩 8 · r12 · bar · 1px hairline.
+   줄 간격 5, 줄 2는 위 6 · 왼쪽 들여쓰기 27(▸ 22 + 간격 5)만큼 밀려 있다.
+   효과(블러·그림자) 없음 — 시안의 다른 면들과 같다.
+   --------------------------------------------------------------------------- */
+.find-card {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 18;
+  width: 268px;
+  /* 좁은 창에서는 창 안으로 들어가게 폭을 줄인다(사용자 피드백 2). */
+  max-width: calc(100% - 24px);
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--bg-bar);
+  border: 1px solid var(--hair);
+}
+
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.find-row-opts,
+.find-row-repl {
+  margin-top: 6px;
+  padding-left: 27px;
+}
+
+.find-input {
+  width: 92px;
+  height: 26px;
+  /* 카드가 좁아지면 입력 칸이 먼저 줄어든다 — 버튼(▲▼✕)은 끝까지 눌려야 한다. */
+  min-width: 0;
+  flex-shrink: 1;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--hair);
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 정규식이 틀리면 찾기 칸 테두리도 경고색으로 물든다(원본 규칙). */
+.find-input[data-error="1"],
+.find-input[data-error="1"]:focus {
+  border-color: var(--warn);
+}
+
+/* 바꾸기 칸은 남는 폭을 다 쓴다 — 268 카드에서 F1의 112를 그대로 두면 버튼이 밀린다. */
+.find-input-repl {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 줄 1의 글자(개수·오류·`3개 바꿈`). 남는 폭을 차지하고 넘치면 …로 줄인다. */
+.find-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.find-count[data-error="1"] {
+  color: var(--warn);
+}
+
+.find-spacer {
+  flex: 1 1 auto;
+}
+
+/* 줄 2 오른쪽: 마우스가 올라간 칩의 이름과 단축키(원본 FindHintText). */
+.find-hint {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.find-toggle,
+.find-nav,
+.find-close {
+  border: 0;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.find-toggle {
+  width: 22px;
+  background: transparent;
+  color: var(--dim);
+}
+
+/* 펼치면 ▸가 ▾가 된다 — 같은 아이콘을 돌린다. */
+.find-toggle[data-open="1"] svg {
+  transform: rotate(90deg);
+}
+
+.find-nav {
+  width: 24px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.find-close {
+  width: 24px;
+  background: transparent;
+  color: var(--dim);
+}
+
+.find-toggle:hover,
+.find-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.find-opt {
+  border: 0;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 11px;
+  background: transparent;
+  color: var(--dim);
+}
+
+/* 켜진 토글: hover 채움 + accent 글자 + semibold (시안 F2의 Aa). */
+.find-opt[data-on="1"] {
+  background: var(--hover);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.find-opt:hover:not([data-on="1"]) {
+  background: var(--hover);
+}
+
+.find-btn {
+  border: 0;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0 11px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 11px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* 일치 강조는 데코레이션뿐이다 — 문서 모델에 들어가지 않으므로 저장 바이트와
+   수정 표시에 영향이 0이다(설계 문서 §8 · §9-2). 시안 F2: 일치 = hover 채움 r6,
+   현재 일치 = accent 1px 테두리. */
+.editor .find-hit {
+  background: var(--hover);
+  border-radius: 6px;
+}
+
+.editor .find-hit-current {
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   대화상자 (승인된 시안 Dialogs.dc.html — D1)
+   확인 카드: 360 · 패딩 16 · r12 · bar · 1px hairline, 버튼 오른쪽 정렬.
+   오류 카드: 같은 카드에 패딩 12 14 · 한 줄 · [글/경로][확인].
+   뒤에는 스크림 rgba(0,0,0,.25).
+   --------------------------------------------------------------------------- */
+.dialog-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--win-radius);
+}
+
+.dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+  width: 360px;
+  /* 좁은 창에서도 카드가 창 안에 들어간다(버튼이 창 밖으로 나가면 누를 수 없다). */
+  max-width: calc(100% - 24px);
+  border-radius: 12px;
+  background: var(--bar);
+  border: 1px solid var(--hair);
+  color: var(--text);
+}
+
+.dialog[data-kind="confirm"] {
+  padding: 16px;
+}
+
+.dialog[data-kind="error"] {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.dialog-error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dialog[data-kind="confirm"] .dialog-message {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dialog[data-kind="error"] .dialog-message {
+  font-size: 12px;
+}
+
+.dialog-detail {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.dialog button {
+  border: 0;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 13px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.dialog[data-kind="error"] button {
+  height: 28px;
+  padding: 0 14px;
+}
+
+.dialog button[data-primary="1"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.dialog button:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: 1px;
+}
+
+.find-input {
+  cursor: text;
+}
+
+/* ---------------------------------------------------------------------------
+   설정 (승인된 시안 Settings.dc.html — S)
+
+   시안의 수치 그대로: 카드 600 · r12 · field 배경 · 1px hairline,
+   제목 줄 34(cap 배경 · accent 네모 10 r3 여백 0 8 0 12 · 12px semibold · ✕ 34),
+   본문 패딩 18 20 · 간격 10 · bar 배경, 섹션 라벨 12px dim(위 여백 4),
+   카드 = field + 1px hairline + r12(패딩 12 14, 목록 카드만 4 14),
+   항목 머리 13px semibold · 보조 11px dim, 테마 칩 28 r10 패딩 0 12 · 간격 6,
+   라디오 12 r6(끈 것 1.5px dim 테두리 / 고른 것 4px accent 테두리),
+   메모지 점 26 r13(고른 것 = field 2px + accent 2px 바깥선),
+   시작 줄 패딩 6 8 r8 · 간격 8, 목록 줄 38 + 1px hairline,
+   언어 칩 26 r8 hover 패딩 0 10, 토글 36×20 r10(손잡이 14 r7), 버전 11px dim 오른쪽.
+
+   창이 아니라 **설정을 연 창 안의 모달**이다(`components/Settings.tsx`의 주석).
+   그래서 z-index는 팝업 메뉴(40)보다 **아래** — 언어 칩이 여는 메뉴가 카드 위에
+   떠야 한다. 오류 카드(50/51)는 설정보다 위다.
+   --------------------------------------------------------------------------- */
+.settings-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--win-radius);
+}
+
+.settings {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 31;
+  /* 넓은 창에서는 시안 S의 600 그대로, 창이 좁으면 **창에 맞춰 줄어든다**(좌우 여백 14씩
+     — 높이 쪽의 28과 같은 규칙). 사용자 피드백 3. */
+  width: min(600px, calc(100% - 28px));
+  /* 시안의 높이는 590이지만 창이 그보다 낮을 수 있다 — 넘치면 본문만 스크롤한다. */
+  max-height: calc(100% - 28px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  background: var(--field);
+  color: var(--text);
+  outline: none;
+}
+
+.settings-title {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  background: var(--cap);
+}
+
+.settings-mark {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  margin: 0 8px 0 12px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.settings-name {
+  flex-grow: 1;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-close {
+  border: 0;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 11px;
+  background: transparent;
+  color: var(--dim);
+}
+
+/* 닫기 hover는 창 제목 줄과 같은 규칙(#C42B1C) */
+.settings-close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.settings-body {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bar);
+}
+
+.set-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.set-label-gap {
+  margin-top: 4px;
+}
+
+.set-card {
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--field);
+  border: 1px solid var(--hair);
+}
+
+.set-card-pad {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.set-card-startup {
+  gap: 8px;
+}
+
+.set-card-list {
+  padding: 4px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.set-head {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.set-sub {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.set-hair {
+  height: 1px;
+  background: var(--hair);
+}
+
+/* 앱 테마 칩 세 개 — 좁으면 아래로 줄바꿈한다(사용자 피드백 3). */
+.set-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.set-chip {
+  border: 0;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-chip[data-on="1"] {
+  background: var(--hover);
+}
+
+.set-chip:hover[data-on="0"] {
+  background: var(--hover);
+}
+
+/* 라디오 동그라미 12 — 시안 S: 끈 것 1.5px dim, 고른 것 4px accent */
+.set-radio {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--dim);
+}
+
+.set-radio[data-on="1"] {
+  border: 4px solid var(--accent);
+}
+
+/* 메모지 색 4점 — 좁으면 글과 점이 두 줄로 나뉜다. */
+.set-tints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.set-tints .set-tint-text {
+  /* 글이 먼저 한 줄을 다 쓰고 점 네 개가 아래로 내려간다. */
+  flex-basis: 180px;
+}
+
+.set-tint-text {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.set-dot {
+  border: 0;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 13px;
+}
+
+.set-dot[data-on="1"] {
+  box-shadow:
+    0 0 0 2px var(--field),
+    0 0 0 4px var(--accent);
+}
+
+/* `색 없음` = 빈 동그라미(테마 메뉴의 같은 행과 같은 규칙). */
+.set-dot[data-none="1"] {
+  border: 1px solid var(--dim);
+  box-sizing: border-box;
+}
+
+/* 시작 — 왼쪽 정렬 라디오 두 줄 */
+.set-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.set-row-btn {
+  border: 0;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 긴 한국어 문구("새 세션 시작 및 저장되지 않은 변경 내용 삭제")가 좁은 창에서
+     두 줄로 흐른다 — 줄 밖으로 넘치지 않게. */
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.set-row-btn[data-on="1"] {
+  background: var(--hover);
+}
+
+.set-row-btn:hover[data-on="0"] {
+  background: var(--hover);
+}
+
+/* 기타 — 38 줄 사이에 1px hairline.
+   좁은 창에서는 줄 안의 컨트롤(언어 칩·토글)이 **아래로 줄바꿈**하며 줄이 높아진다.
+   그래서 `height`가 아니라 `min-height`다 — 넓은 창에서는 38/39 그대로다. */
+.set-line {
+  min-height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  row-gap: 4px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.set-card-list .set-line + .set-line {
+  min-height: 39px;
+  border-top: 1px solid var(--hair);
+}
+
+.set-line-label {
+  flex-grow: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.set-pick {
+  border: 0;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.set-caret {
+  font-size: 9px;
+  color: var(--dim);
+}
+
+/* ---------------------------------------------------------------------------
+   `글꼴` 카드 (시안 G1) — 모양 섹션의 앱 테마 카드 **아래**.
+   줄 두 개(왼쪽 라벨 12px · 오른쪽 드롭다운 h28 · min-width 220 · r8 · 1px hair · ▾)와
+   그 아래 미리 보기 한 줄(h30 · r8 · bar 배경 · padding 0 10 · 15px).
+   "미리 보기" 라벨도 hairline도 없다 — 시안 그대로다.
+   --------------------------------------------------------------------------- */
+.set-font-line {
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.set-font-label {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.set-font-pick {
+  height: 28px;
+  min-width: 220px;
+  max-width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text);
+}
+
+.set-font-pick:hover {
+  background: var(--hover);
+}
+
+/* 고른 글꼴 이름이 길면 줄이 늘어나지 않고 말줄임으로 끊는다(카드 폭이 600 고정이다). */
+.set-font-name {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.set-font-preview {
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bar);
+  font-size: 15px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* 토글 36×20. 시안 S는 **켜진 모양만** 그려져 있어서, 꺼진 모양은 Windows 11의
+   스위치 규칙(빈 트랙 + 1px 테두리 + 왼쪽 손잡이)을 따랐다. */
+.set-switch {
+  position: relative;
+  border: 0;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 10px;
+  background: var(--accent);
+}
+
+.set-switch[data-on="0"] {
+  background: transparent;
+  border: 1px solid var(--dim);
+}
+
+.set-knob {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--field);
+}
+
+.set-switch[data-on="0"] .set-knob {
+  right: auto;
+  left: 2px;
+  top: 2px;
+  background: var(--dim);
+}
+
+.set-version {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--dim);
+  text-align: right;
+}
+
+/* 시안에 없는데 더한 것: 키보드 초점 테두리. 고른 라디오와 초점이 있는 라디오가
+   둘 다 hover 채움이라 키보드만으로는 어디 있는지 알 수 없다(팝업과 같은 이유). */
+.settings button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   좁고 낮은 창 (사용자 피드백 2 — 최소 창 크기를 없앴다)
+
+   창은 Windows가 허용하는 만큼 작아질 수 있다. 시안 R5의 수치는 **넓은 창의 값**으로
+   그대로 두고, 자리가 모자라는 순서대로 하나씩 양보한다:
+
+     480 미만 — 메모 목록이 **색 점 막대**(42)로 접힌다. CSS가 아니라 `App`이 정한다
+                (`lib/tabStrip.ts`의 `listMode`) — 목록을 켜 두었는지(`noteList`)와 창
+                폭만 보는 규칙이다. 켜 둔 목록은 어떤 폭에서도 사라지지 않고, 끄는 것은
+                목록 머리 버튼 · 위 줄 목록 버튼 · ☰ › 보기 › 메모 목록이다(같은 토글).
+     420 이하 — 편집 여백을 줄인다(위 18·좌우 32 → 12·14). 상태 글자는 여기서 숨기지
+                않는다 — 도구 줄과 **실제로 겹칠 때** 숨는다(`data-collide`).
+                **테이프 자리(72)와 가운데 맞추기용 오른쪽 빈 곳도 여기서 내준다** —
+                알약보다 먼저 양보하는 것이 맞다(고정 중에는 알약이 없다).
+     320 이하 — 알약 탭의 바닥을 84 → 44로 낮추고(0이 아니다), 편집 여백을 한 번 더 줄이고,
+                설정 카드의 안쪽 여백을 줄인다. 오버레이 안내 글자도 숨긴다.
+     240 이하 — 위 줄에서 목록 버튼 · `+`를 접는다(둘 다 **☰ 메뉴에 같은 항목이 있다** —
+                메모 목록 보기 · 새 탭). `◀ ▶`는 좁혀서 남긴다.
+     180 이하 — 마지막 수단: 창 버튼을 34 → 26으로 줄인다. ─ □ ✕는 끝까지 남는다
+                (`flex-shrink: 0` + 이 규칙) — 그것이 창을 되살리는 유일한 손잡이다.
+
+   높이 쪽은 떠 있는 도구 줄에 가려지지 않을 만큼만 아래 여백을 남긴다.
+   도구 줄 자체는 넘치면 끝에서부터 `⋯`로 접힌다(시안 N2b · `lib/dockFit.ts`).
+   --------------------------------------------------------------------------- */
+@media (max-width: 420px) {
+  :root {
+    --edit-pad-top: 12px;
+    --edit-pad-x: 14px;
+    --edit-pad-bottom: 58px;
+  }
+
+  /* 상태 글자를 폭으로 숨기던 규칙은 **없어졌다** — 이제 도구 줄과 실제로 겹칠
+     때만 숨는다(`.status-text[data-collide="1"]`). 도구 줄의 폭이 메모 목록·N2b
+     접기에 따라 달라져 고정 경계로는 맞출 수 없었다(사용자 보고 3). */
+}
+
+@media (max-width: 320px) {
+  :root {
+    --edit-pad-top: 8px;
+    --edit-pad-x: 10px;
+    --edit-pad-bottom: 54px;
+  }
+
+  .titlebar {
+    gap: 2px;
+    padding-left: 4px;
+  }
+
+  /* 바닥을 풀더라도 **0까지 풀지는 않는다**(사용자 보고 3): 0이면 flex가 알약을
+     글자·색 점보다 좁게 짜부라뜨려 색 점이 반쯤 잘린 알약이 보였다. 44는 색 점 8 +
+     여백 14 + `…` 한 글자가 들어가는 바닥이고, 그래도 모자라면 `◀ ▶`로 넘어간다
+     (= 원본 `LayoutTabs`의 "먼저 줄이고 그 다음 스크롤" 순서 그대로). */
+  .tab-pill {
+    min-width: 44px;
+    gap: 5px;
+    padding: 0 7px;
+  }
+
+  /* 좁아서 ✕가 들어갈 자리가 없으면 **활성 탭만** 남긴다(지시).
+     비활성 알약은 자리를 아예 내주므로 이름이 그만큼 더 보인다. */
+  .tab-pill:not([data-active="1"]) > .tab-close {
+    display: none;
+  }
+
+  .status-overlay {
+    display: none;
+  }
+
+  .settings-body {
+    padding: 12px 12px;
+  }
+
+  .set-card-pad {
+    padding: 10px 10px;
+  }
+
+  .set-card-list {
+    padding: 4px 10px;
+  }
+}
+
+/* 240 이하 — 목록 버튼과 `+`를 접는다(둘 다 ☰ 메뉴에 같은 항목이 있다).
+   `◀ ▶`는 **남긴다**(사용자 보고 3에서 바꾼 것): 넘칠 때만 나오고, 그때 탭 줄에서
+   안 보이는 탭에 닿는 유일한 손잡이다 — 접으면 메모 목록이나 ☰로 돌아가야 한다. */
+@media (max-width: 240px) {
+  .titlebar > .list-toggle,
+  .titlebar > .tab-new {
+    display: none;
+  }
+
+  .tab-arrow {
+    width: 16px;
+  }
+
+  /* 색 점 막대(42)까지 켜져 있으면 알약 줄에 온전한 알약 하나가 들어갈 자리도 남지
+     않는다 → 알약 줄을 아예 접는다. 막대가 모든 메모를 색 점 + 툴팁으로 보여 주고
+     ☰ 메뉴도 그대로 있으므로 닿지 못하는 탭은 없다. (창 폭만 보는 규칙이라 "숨기니
+     자리가 생겨 다시 보인다"는 되풀이가 생기지 않는다.) */
+  .notelist[data-rail="1"] ~ .main .tab-strip,
+  .notelist[data-rail="1"] ~ .main .tab-arrow {
+    display: none;
+  }
+}
+
+@media (max-width: 180px) {
+  .caption-btn {
+    width: 26px;
+  }
+}
+
+/* 낮은 창: 편집 영역이 거의 남지 않으므로 도구 줄 아래 여백과 편집 여백을 줄인다. */
+@media (max-height: 320px) {
+  :root {
+    --edit-pad-top: 8px;
+    --edit-pad-bottom: 52px;
+  }
+
+  .status-text,
+  .status-overlay {
+    display: none;
+  }
+}

@@ -1,0 +1,63 @@
+[package]
+name = "inkwell"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "inkwell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon`: 예약이 남아 있으면 창을 다 닫아도 트레이에 남는다(§4의 마지막 줄).
+# 상주를 **시작할 때만** 아이콘을 만들고 끝날 때 지운다 — 평소에는 아이콘이 없다.
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-notification = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-global-shortcut = "2"
+# 프로세스는 하나여야 한다(MIGRATION_HANDOFF §7): 두 프로세스가 같은 session.json과
+# reminders를 쓰면 한쪽이 덮어쓴다. 두 번째 실행은 파일을 넘기고 끝난다(src/cli.rs).
+tauri-plugin-single-instance = "2"
+
+# 시스템 메뉴의 `이동`·`크기 조정`은 Windows 자신의 키보드 루프라 `WM_SYSCOMMAND`로
+# 보내야 한다(src/syscmd.rs). `windows`가 아니라 `windows-sys`인 이유도 거기 적어 두었다.
+# Win10/11 공통 API만 쓴다.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    # 우클릭 메뉴의 `붙여넣기` — WebView2의 클립보드 권한 창을 피해 Win32로 읽는다
+    # (src/clipboard.rs). `GlobalLock`이 Win32_System_Memory에 있다.
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    # 설치된 글꼴 목록 — `EnumFontFamiliesExW`(src/fonts.rs). Win10/11 공통, 권한 불필요.
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    # 알림 소리 `MessageBeep`이 여기 산다(원본과 같은 "알림" 소리).
+    "Win32_System_Diagnostics_Debug",
+    # `FlashWindowEx` — 알림이 울릴 때 작업 표시줄 깜빡임(열린 창이 있을 때만).
+    "Win32_UI_WindowsAndMessaging",
+] }

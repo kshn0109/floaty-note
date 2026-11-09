@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inkwell</title>
+    <!--
+      알림 토스트(시안 T2). **`index.html`이 아닌 자기 페이지인 이유**는 `ghost.html`과
+      같다: 카드 하나를 그리려고 React와 편집기 두 엔진을 올릴 수 없고, 토스트는 창이
+      하나도 없을 때(트레이 상주)도 떠야 한다. 쓰는 것은 Tauri 커맨드 몇 개와
+      `lib/i18n`·`lib/theme`·`lib/settings`뿐이다.
+    -->
+  </head>
+
+  <body>
+    <div id="card">
+      <div id="band"></div>
+      <div id="inner">
+        <div id="top">
+          <div id="body"></div>
+          <button id="close" type="button" aria-label="닫기">
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              aria-hidden="true"
+            >
+              <path d="M4 4l8 8M12 4l-8 8"></path>
+            </svg>
+          </button>
+        </div>
+        <div id="footer"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/toast.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "ghost",
+  "description": "떠다니는 고스트 탭(`ghost.html`). 이벤트 하나를 듣고 `ghost_paint` 하나를 부르는 것이 전부다 — 창 API는 쓰지 않는다(위치·크기는 Rust가 옮긴다).",
+  "windows": [
+    "inkwell-ghost"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

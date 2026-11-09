@@ -1,0 +1,95 @@
+/* ---------------------------------------------------------------------------
+   팔레트 — MIGRATION_HANDOFF §3 표의 값 그대로. **색 값의 유일한 출처.**
+   테마 전환은 `html[data-theme]` 하나만 바뀐다.
+
+   왜 `index.css`에서 떼어 냈는가: 알림 토스트(T2)는 창 본체와 다른 경량 페이지라
+   (`toast.html` — React도 편집기도 Tailwind도 올리지 않는다) 팔레트만 따로 필요하다.
+   그 페이지가 자기 색 표를 갖는 순간 테마가 두 곳에 생기고 언젠가 어긋난다 —
+   `index.css`와 `toast.css`가 **이 파일 하나를** 들여온다.
+   --------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme="dark"] {
+  --cap: #17181c;
+  --bar: #17181c;
+  --field: #1e1f24;
+  --hair: #2c2e35;
+  --hover: #2a2d34;
+  --text: #c9ccd3;
+  --dim: #7c818c;
+  --accent: #6ee7b7;
+  /* accent 채움 위의 글자색(D1의 주 버튼). 다크의 accent는 밝으므로 글자는 어둡다. */
+  --on-accent: #17181c;
+  --warn: #f87171;
+  --table-border: #4a4e58;
+}
+
+:root[data-theme="light"] {
+  --cap: #f2f3f5;
+  --bar: #f2f3f5;
+  --field: #ffffff;
+  --hair: #d8dbe0;
+  --hover: #e4e7eb;
+  --text: #000000;
+  --dim: #646b76;
+  --accent: #0c7a57;
+  --on-accent: #ffffff;
+  --warn: #b42318;
+  --table-border: #c3c8d0;
+}
+
+:root[data-theme="yellow"] {
+  --cap: #fbe98a;
+  --bar: #fff0a3;
+  --field: #fff6c2;
+  --hair: #eadb8c;
+  --hover: #f5e48a;
+  --text: #2b2610;
+  --dim: #786d39;
+  --accent: #846900;
+  --on-accent: #ffffff;
+  --warn: #b42318;
+  --table-border: #c3c8d0;
+}
+
+:root[data-theme="mint"] {
+  --cap: #bfeccf;
+  --bar: #d2f2de;
+  --field: #e3f7ea;
+  --hair: #b4dfc4;
+  --hover: #c4ead2;
+  --text: #12291b;
+  --dim: #4f6f5c;
+  --accent: #17734a;
+  --on-accent: #ffffff;
+  --warn: #b42318;
+  --table-border: #c3c8d0;
+}
+
+:root[data-theme="pink"] {
+  --cap: #f9cbd5;
+  --bar: #fdd8e0;
+  --field: #ffe6eb;
+  --hair: #efbcc7;
+  --hover: #f8cdd7;
+  --text: #2e1218;
+  --dim: #7a4f59;
+  --accent: #b0244a;
+  --on-accent: #ffffff;
+  --warn: #b42318;
+  --table-border: #c3c8d0;
+}
+
+:root[data-theme="sky"] {
+  --cap: #c6dcfb;
+  --bar: #d4e5fd;
+  --field: #e5f0ff;
+  --hair: #b7cdeb;
+  --hover: #c8dcf8;
+  --text: #0f1d30;
+  --dim: #4c5f78;
+  --accent: #1d5fb8;
+  --on-accent: #ffffff;
+  --warn: #b42318;
+  --table-border: #c3c8d0;
+}

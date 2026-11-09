@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inkwell</title>
+    <style>
+      /* 떠다니는 고스트 탭 — 시안 TD의 떠 있는 칩을 지금 배치(R5)의 알약 모양에 맞춘 것.
+         높이·반지름은 R5 알약(26 · r13), 채움은 bar, 1px hairline, 85% 불투명(시안 TD).
+         창이 알약 크기 그대로이므로 이 페이지는 창을 꽉 채운다. */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        cursor: default;
+      }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #pill {
+        box-sizing: border-box;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 10px;
+        border-radius: 13px;
+        border: 1px solid transparent;
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0.85;
+        overflow: hidden;
+      }
+      #name {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      #dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      #dirty {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        flex-shrink: 0;
+        display: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="pill">
+      <span id="dot"></span>
+      <span id="name"></span>
+      <span id="dirty"></span>
+    </div>
+    <script type="module" src="/src/ghost.ts"></script>
+  </body>
+</html>
