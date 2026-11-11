@@ -60,7 +60,7 @@ export const samples = [
   S("각주", "[^1]: 각주 본문\n"),
   S("수평선", "---\n"),
   S("이스케이프들", "\\* \\_ \\# \\| \\\\ \\~\n"),
-  S("윈도 경로(백슬래시)", "C:\\Users\\ksch3\\notes\\a.md\n"),
+  S("윈도 경로(백슬래시)", "C:\\Users\\user\\notes\\a.md\n"),
   S("literal == 쌍", "a == b 입니다\n"),
   S("==== 네 개", "====\n"),
   S("<marked> 는 mark 아님", "<marked>x</marked>\n"),
@@ -151,7 +151,7 @@ describe("샘플 50개 왕복", () => {
   });
 
   it("고친 두 규칙이 실제로 백슬래시·한글 밑줄을 지킨다", () => {
-    const paths = ["C:\\Users\\ksch3\\notes\\a.md\n", "한글_밑줄_사이\n"];
+    const paths = ["C:\\Users\\user\\notes\\a.md\n", "한글_밑줄_사이\n"];
     for (const md of paths) {
       const r = run(md, INKWELL_OPTS);
       expect(serializeMarkdown(r.back, INKWELL_OPTS)).toBe(md);
