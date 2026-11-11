@@ -5,6 +5,7 @@ import { DOCK_MARGIN, dockLayout, type FoldItem } from "../lib/dockFit";
 import { t } from "../lib/i18n";
 import { HEADING_MENU, PEN_MENU, rootMenu, type Menu } from "../lib/menus";
 import { HIGHLIGHTS, OPACITY_MAX, OPACITY_MIN, OPACITY_STEP } from "../lib/palette";
+import { SCREEN_MARGIN } from "./Popup";
 
 /**
  * 떠 있는 도구 줄 — 시안 R5 + N2b.
@@ -40,7 +41,6 @@ const THUMB = 14;
 const POP_W = 236;
 const POP_H = 93;
 const POP_GAP = 6;
-const SCREEN_MARGIN = 8;
 
 function clamp(value: number): number {
   return Math.min(Math.max(Math.round(value), OPACITY_MIN), OPACITY_MAX);

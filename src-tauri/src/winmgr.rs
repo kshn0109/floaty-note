@@ -316,7 +316,7 @@ pub async fn window_create(app: AppHandle, spec: WindowSpec) -> Result<String, S
     #[cfg(debug_assertions)]
     let builder = crate::session::with_webview_data_dir(builder);
     let built = builder
-        .title("Inkwell")
+        .title("Floaty Note")
         .inner_size(840.0, 520.0)
         // 최소 크기를 두지 않는다(사용자 요청): Windows가 허용하는 만큼 작게 줄일 수
         // 있고, 좁아질 때 깨지지 않는 일은 화면 쪽(`index.css`의 좁은 창 규칙)이 한다.

@@ -81,7 +81,7 @@ async fn ensure_ghost(app: &AppHandle, source: &str) -> Result<WebviewWindow, St
     #[cfg(debug_assertions)]
     let builder = crate::session::with_webview_data_dir(builder);
     let win = builder
-        .title("Inkwell")
+        .title("Floaty Note")
         .inner_size(160.0, 26.0)
         .decorations(false)
         .transparent(true)

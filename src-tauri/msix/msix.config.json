@@ -1,0 +1,16 @@
+{
+  "//": "Partner Center의 '제품 ID' 페이지(Product management > Product identity)에서 그대로 복사해 채운다. 값을 채우지 않으면 make-msix.ps1이 멈춘다(-AllowPlaceholder로 건너뛸 수 있다).",
+
+  "identityName": "Sheon.FloatyNote",
+  "publisher": "CN=C3018775-2DAA-4AE7-A34F-0D49D96DA1D9",
+  "publisherDisplayName": "Sheon",
+
+  "displayName": "Floaty Note",
+  "description": "A quiet notepad for Windows.",
+
+  "//version": "비워 두면 tauri.conf.json의 version에서 4자리(마지막 0)로 만든다. Store는 마지막 자리가 0이어야 한다.",
+  "version": "",
+
+  "//languages": "AppxManifest의 Resources 언어 목록. 첫 번째가 기본값이다.",
+  "languages": ["ko-KR", "en-US"]
+}

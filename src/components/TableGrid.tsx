@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { t, tf } from "../lib/i18n";
-import type { Anchor } from "./Popup";
+import { SCREEN_MARGIN, type Anchor } from "./Popup";
 
 /**
  * 표 크기 고르기 — 8×8 격자 팝업 (`Ctrl+Shift+L`, 도구 줄의 표 버튼).
@@ -22,12 +22,11 @@ const GAP = 3;
 const PAD = 10;
 const LABEL_GAP = 8;
 const LABEL_H = 18;
-const SCREEN_MARGIN = 8;
 /** 팝업과 누른 버튼 사이 간격 (Popup.tsx의 `GAP`과 같은 값). */
 const ANCHOR_GAP = 6;
 
-export const GRID_W = 2 * PAD + COLS * CELL + (COLS - 1) * GAP;
-export const GRID_H = PAD + ROWS * CELL + (ROWS - 1) * GAP + LABEL_GAP + LABEL_H + PAD;
+const GRID_W = 2 * PAD + COLS * CELL + (COLS - 1) * GAP;
+const GRID_H = PAD + ROWS * CELL + (ROWS - 1) * GAP + LABEL_GAP + LABEL_H + PAD;
 
 interface Props {
   anchor: Anchor;

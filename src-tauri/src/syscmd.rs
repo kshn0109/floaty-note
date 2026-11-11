@@ -68,6 +68,20 @@ pub fn sys_command(command: SysCommand, window: tauri::Window) -> Result<(), Str
     Err("시스템 메뉴는 Windows에서만 동작합니다".to_string())
 }
 
+/// 점검용 UI 언어 바꿔치기 — **디버그 빌드에만 있다**(`session::data_dir_override`와 같은 규칙).
+///
+/// `INKWELL_LANG=en`(또는 `ko`)이면 Windows 표시 언어 대신 그 값을 쓴다. 홍보용 화면을
+/// 찍거나 번역을 눈으로 확인할 때 쓰는 길이고, 릴리스 빌드에서는 이 함수 자체가 사라지므로
+/// 환경변수를 넣어도 아무 일이 없다 — 언제나 `GetUserDefaultUILanguage()`다.
+#[cfg(all(windows, debug_assertions))]
+fn lang_override() -> Option<&'static str> {
+    match std::env::var("INKWELL_LANG").ok()?.as_str() {
+        "en" => Some("en"),
+        "ko" => Some("ko"),
+        _ => None,
+    }
+}
+
 /// OS의 UI 언어를 우리가 내보내는 언어로 줄인 값 — `"ko"` 아니면 `"en"`.
 ///
 /// 원본 `UiLangFromSystem()`과 같은 판정이다. `navigator.language`는 WebView2의
@@ -77,6 +91,11 @@ pub fn sys_command(command: SysCommand, window: tauri::Window) -> Result<(), Str
 #[tauri::command]
 pub fn system_language() -> &'static str {
     use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
+
+    #[cfg(debug_assertions)]
+    if let Some(lang) = lang_override() {
+        return lang;
+    }
 
     const LANG_KOREAN: u16 = 0x12;
     // SAFETY: 인자 없는 순수 조회 함수.

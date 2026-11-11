@@ -110,10 +110,6 @@ export function isPast(m: Moment, now: number): boolean {
   return toMs(m) <= now;
 }
 
-export function fieldValue(m: Moment, field: PickField): number {
-  return m[field];
-}
-
 /**
  * 그리는 쪽이 `지금`을 다시 읽는 주기 — **1초**.
  *

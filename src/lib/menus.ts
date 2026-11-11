@@ -55,7 +55,9 @@ export type Action =
   // `""`가 `기본`이다. 크기는 pt(`lib/fonts.ts`의 `FONT_SIZES`).
   | { t: "font"; value: string }
   | { t: "fontSize"; value: number }
-  | { t: "highlight"; value: number };
+  | { t: "highlight"; value: number }
+  /** 탭 목록(시안 T1)에서 탭 하나를 골랐다 — `id`는 `Tab.id`. */
+  | { t: "tab"; id: number };
 
 /** 세그먼트 버튼의 칸 하나 · 색 점 하나 (시안 C2의 `테마` 메뉴). */
 export interface Choice {
@@ -97,7 +99,21 @@ export type MenuItem =
   /** 세그먼트 버튼 한 덩어리 (시안 C2의 `테마` 3칸). `key`는 말풍선·낭독기용. */
   | { kind: "segment"; label: StrId; key?: string; options: readonly Choice[] }
   /** 색 점 한 덩어리 (시안 C2의 `메모지 색` 5점). */
-  | { kind: "dots"; label: StrId; options: readonly DotChoice[] };
+  | { kind: "dots"; label: StrId; options: readonly DotChoice[] }
+  /**
+   * 탭 목록의 한 줄 (승인된 시안 T1): 색 점 8 · 이름(길면 `…`) · 저장 안 됨 점 6 ·
+   * 지금 탭 ✓. 높이·반지름·폭은 **기존 팝업 그대로**(행 30 · r8 · 팝업 r12 · 236)라
+   * 새 모양이 아니다. 이름은 PC마다 다른 값이라 `row`의 `text`처럼 글자를 직접 담는다.
+   */
+  | {
+      kind: "tab";
+      id: number;
+      text: string;
+      /** 색 점의 색. `""`면 `색 없음`(dim 테두리 빈 점) — `dots`·`swatch`와 같은 규칙. */
+      color: string;
+      dirty: boolean;
+      active: boolean;
+    };
 
 export interface Menu {
   /** 스크린 리더가 읽는 이름 겸 디버그용 이름. */
@@ -255,9 +271,8 @@ export const ROOT_MENU: Menu = {
     { kind: "sub", label: "moreView", menu: VIEW_MENU },
     { kind: "sub", label: "menuTheme", menu: THEME_MENU },
     { kind: "sep" },
-    // AI는 아직 없다 — 모양만(지시). 표에 함수가 없으므로 눌러도 메뉴만 닫힌다.
-    { kind: "row", label: "btnAi", key: "Ctrl+Shift+A", act: { t: "cmd", id: "aiPanel" } },
-    { kind: "sep" },
+    // AI 줄은 출시 전까지 뺐다(사용자 요청 2026-11-11 — 미완성이라 Store 베타에 안 보이게).
+    // 다시 넣을 때: { kind: "row", label: "btnAi", key: "Ctrl+Shift+A", act: { t: "cmd", id: "aiPanel" } }, { kind: "sep" },
     // 알림 — 원본은 ⋯ 메뉴에 `알림` 머리 아래 `알림 예약…`과 `예약된 알림` 두 줄을
     // 두었다. 여기는 **목록 한 줄만** 둔다(지시 3): `알림 예약…`은 선택한 글에
     // 걸리는 명령이라 우클릭 메뉴와 Ctrl+Shift+R이 제자리고, ☰를 누르는 사이
@@ -399,6 +414,48 @@ export const PEN_MENU: Menu = {
     { kind: "row", label: "hlRemove", act: { t: "cmd", id: "highlightOff" } },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// 탭 목록 — 승인된 시안 T1 (사용자 결정 2026-11-10)
+// ---------------------------------------------------------------------------
+
+/** 탭 목록이 한 줄을 그리는 데 필요한 것 전부. `TitleBar`가 `Tab`에서 뽑아 준다. */
+export interface TabRow {
+  id: number;
+  /** 보이는 이름(`tabs.tabLabel`) — `제목 없음`도 여기서 이미 풀려 있다. */
+  label: string;
+  tint: Tint;
+  dirty: boolean;
+}
+
+/** 탭 목록 팝업의 폭 — 기존 팝업(우클릭 메뉴)과 같은 236. */
+export const TAB_LIST_WIDTH = 236;
+/** 구르지 않고 보여 주는 최대 줄 수. 넘으면 이 높이까지만 쓰고 **구른다**(시안 G1 방식). */
+export const TAB_LIST_MAX_ROWS = 10;
+
+/**
+ * 「N ▾」가 여는 탭 목록 (시안 T1). **보이는 탭 전부**가 순서대로 들어가고 — 숨은
+ * 탭(`Tab.hidden`)은 `App`의 `shownTabs`가 이미 걸러 두었다 — 지금 탭에 ✓가 선다.
+ *
+ * 전체가 구르는 칸이다(`scrollFrom: 0`): 맨 위에 고정해 둘 줄이 없고, 줄이 적으면
+ * `menuHeight`가 내용 높이만 세므로 짧은 목록에서 빈 자리가 남지 않는다.
+ */
+export function tabListMenu(tabs: readonly TabRow[], activeId: number): Menu {
+  return {
+    title: "tabListTitle",
+    width: TAB_LIST_WIDTH,
+    scrollFrom: 0,
+    scrollH: TAB_LIST_MAX_ROWS * ROW_H,
+    items: tabs.map((tab) => ({
+      kind: "tab",
+      id: tab.id,
+      text: tab.label,
+      color: tab.tint === "none" ? "" : TINT_DOTS[tab.tint],
+      dirty: tab.dirty,
+      active: tab.id === activeId,
+    })),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // 행의 상태 — 체크/라디오 표시, 색 네모, 비활성

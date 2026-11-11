@@ -5,17 +5,15 @@
 //! 덮어쓰면 사용자의 실제 설정과 세션이 날아간다(MIGRATION_HANDOFF §7). 그래서
 //! 폴더 이름이 다르고(`Inkwell-Tauri`), 레지스트리는 읽지도 쓰지도 않는다.
 //!
-//! 쓰기는 **임시 파일 → rename**이다. 중간에 죽어도 이전 설정 파일이 그대로 남는다
-//! (§7의 세션 파일 규칙과 같은 이유). Windows의 `fs::rename`은 대상이 있으면 실패하므로
-//! `ReplaceFileW` 대신 간단하게 "지우고 옮기기"를 쓴다 — 설정 파일은 작고, 날아가도
-//! 기본값으로 돌아가면 되는 값들이다.
+//! 쓰기는 **임시 파일 → 제자리 바꿔치기**이고, 세션·알림·최근 파일과 같은 함수
+//! (`session::write_atomic`)를 쓴다. 중간에 죽어도 이전 설정 파일이 그대로 남는다
+//! (§7의 세션 파일 규칙과 같은 이유).
 //!
 //! JSON의 **모양은 프론트가 정한다.** Rust는 `serde_json::Value`를 그대로 주고받으므로
 //! 항목을 더하거나 이름을 바꿀 때 이 파일을 고칠 일이 없다. 모르는 키는 보존되고,
 //! 깨진 파일은 기본값(`null`)으로 읽힌다.
 
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 
 const FILE_NAME: &str = "settings.json";
@@ -93,28 +91,12 @@ pub fn mark_tray_notice_shown() -> bool {
     true
 }
 
+/// 쓰기 규칙은 세션·알림·최근 파일과 **같은 함수**다(`session::write_atomic`):
+/// 임시 파일 → fsync → 제자리로 바꿔치기. 규칙이 두 곳에 있으면 한쪽만 고쳐진다.
 fn write_settings(settings: &serde_json::Value) -> Result<(), String> {
     let dir = settings_dir()?;
     fs::create_dir_all(&dir).map_err(|e| format!("설정 폴더를 만들 수 없습니다: {e}"))?;
-    let path = dir.join(FILE_NAME);
-    let temp = dir.join(format!("{FILE_NAME}.tmp"));
-
     let text = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("설정을 직렬화할 수 없습니다: {e}"))?;
-    {
-        let mut file =
-            fs::File::create(&temp).map_err(|e| format!("임시 파일을 만들 수 없습니다: {e}"))?;
-        file.write_all(text.as_bytes())
-            .map_err(|e| format!("설정을 쓸 수 없습니다: {e}"))?;
-        file.sync_all()
-            .map_err(|e| format!("설정을 비울 수 없습니다: {e}"))?;
-    }
-    // rename은 Windows에서 대상이 있으면 실패한다. 지우고 옮기되, 옮기기가 실패하면
-    // 임시 파일을 치워 쓰레기를 남기지 않는다.
-    let _ = fs::remove_file(&path);
-    if let Err(e) = fs::rename(&temp, &path) {
-        let _ = fs::remove_file(&temp);
-        return Err(format!("설정 파일을 옮길 수 없습니다: {e}"));
-    }
-    Ok(())
+    crate::session::write_atomic(&dir.join(FILE_NAME), &text)
 }

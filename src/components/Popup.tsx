@@ -118,7 +118,7 @@ export function placeFlip(anchor: Anchor, width: number, height: number): Positi
 }
 
 function isFocusable(item: MenuItem, state: MenuState): boolean {
-  if (item.kind === "sub") return true;
+  if (item.kind === "sub" || item.kind === "tab") return true;
   if (item.kind === "zoom" || item.kind === "segment" || item.kind === "dots") return true;
   if (item.kind !== "row") return false;
   return itemEnabled(item.act, state);
@@ -306,6 +306,12 @@ export default function Popup({
         setFocus(index);
         setCell(-1);
         setOpenSub(index);
+        return;
+      }
+      // 탭 목록(시안 T1) — 고르면 그 탭이 활성이 되고 메뉴는 닫힌다(다른 행과 같다).
+      if (item.kind === "tab") {
+        onAction({ t: "tab", id: item.id });
+        onClose();
         return;
       }
       if (item.kind !== "row" || !itemEnabled(item.act, state)) return;
@@ -568,6 +574,36 @@ export default function Popup({
         </div>
       );
     }
+    if (item.kind === "tab") {
+      return (
+        <button
+          className="popup-row popup-tab"
+          type="button"
+          role="menuitemradio"
+          aria-checked={item.active}
+          key={`tab-${item.id}`}
+          data-index={index}
+          data-focus={focus === index ? "1" : "0"}
+          // 지금 탭에 `data-selected`를 두면 **열자마자 그 줄이 보이게** 구른다
+          // (아래 `popup-scroll [data-selected="1"]` 효과 — 글꼴 목록과 같은 길).
+          data-selected={item.active ? "1" : "0"}
+          title={item.text}
+          onPointerEnter={() => {
+            kbRef.current = false;
+            setFocus(index);
+            setCell(-1);
+            setOpenSub(null);
+            scheduleTip(null, false);
+          }}
+          onClick={() => activate(index)}
+        >
+          <span className="tint-dot" data-empty={item.color === "" ? "1" : undefined} style={item.color === "" ? undefined : { background: item.color }} />
+          <span className="popup-label">{item.text}</span>
+          {item.dirty && <span className="dirty-dot" />}
+          <span className="popup-check">{item.active ? "✓" : ""}</span>
+        </button>
+      );
+    }
     if (item.kind === "zoom") return renderZoom(index);
     if (item.kind === "segment") return renderSegment(index, item);
     if (item.kind === "dots") return renderDots(index, item);
@@ -736,12 +772,6 @@ export default function Popup({
       {card}
     </div>
   );
-}
-
-/** 열려 있는 팝업 하나를 가리키는 값. `App`이 하나만 들고 있다. */
-export interface OpenMenu {
-  menu: Menu;
-  position: Position;
 }
 
 /** 버튼 요소에 대고 메뉴를 열 좌표를 만든다. */

@@ -217,6 +217,11 @@ fn notice(app: &AppHandle) {
 
 /// 개발 빌드에서 모양을 바로 보기 위한 길(지시 검증 방법). UI 쪽에서
 /// `import.meta.env.DEV`로만 부른다.
+///
+/// **릴리스 빌드에는 아예 없다** — 등록도 `lib.rs`에서 `cfg(debug_assertions)`로
+/// 갈린다. 배포판이 부르지 않는 커맨드를 IPC 표에 남겨 두지 않는다(Store 심사에서
+/// 쓰지 않는 길은 두지 않는 것이 낫다).
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub fn toast_preview(app: AppHandle, missed: bool) {
     let sample = Reminder {
@@ -302,7 +307,7 @@ fn show(app: &AppHandle, payload: ToastPayload, about: Option<Reminder>) {
         #[cfg(debug_assertions)]
         let builder = crate::session::with_webview_data_dir(builder);
         let built = builder
-            .title("Inkwell")
+            .title("Floaty Note")
             .inner_size(WIDTH_DIP, FALLBACK_H_DIP)
             .decorations(false)
             .transparent(true)
@@ -320,8 +325,14 @@ fn show(app: &AppHandle, payload: ToastPayload, about: Option<Reminder>) {
             .build();
 
         if built.is_err() {
-            let state = app.state::<Toasts>();
-            lock(&state).slots.retain(|s| s.label != label);
+            {
+                let state = app.state::<Toasts>();
+                lock(&state).slots.retain(|s| s.label != label);
+            }
+            // 슬롯이 빠졌으니 상주 이유도 달라졌다 — 창도 예약도 없는데 이 자리에서
+            // 돌아가지 않으면 "보이지 않는 카드"를 기다리며 프로세스가 영원히 남는다
+            // (`Residency::WaitForToast`). 종료 판단은 한 자리여야 한다(§7).
+            reconsider(&app);
             return;
         }
 
@@ -549,7 +560,7 @@ fn ensure_tray(app: &AppHandle) {
             return;
         }
         let ko = crate::settings::ui_language() == "ko";
-        let open_label = if ko { "Inkwell 열기" } else { "Open Inkwell" };
+        let open_label = if ko { "Floaty Note 열기" } else { "Open Floaty Note" };
         let exit_label = if ko { "종료" } else { "Exit" };
 
         let Ok(open) = tauri::menu::MenuItem::with_id(&app, "tray-open", open_label, true, None::<&str>)
@@ -568,7 +579,7 @@ fn ensure_tray(app: &AppHandle) {
         };
 
         let mut builder = tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
-            .tooltip("Inkwell")
+            .tooltip("Floaty Note")
             .menu(&menu)
             // 왼쪽 클릭은 창을 되살린다(원본: 아이콘 클릭·더블클릭·`열기` 모두 같은 길).
             // 메뉴는 오른쪽 클릭에만 뜬다.

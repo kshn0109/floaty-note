@@ -14,3 +14,6 @@ CLAUDE.md
 MIGRATION_HANDOFF.md
 docs/
 .claude/
+
+# MSIX generated assets
+src-tauri/msix/Assets/

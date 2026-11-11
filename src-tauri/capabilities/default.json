@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Inkwell의 메인 창들(다중 창). 창 라벨은 `main`과 `win<n>`이다 — `winmgr.rs`가 발급한다. 글로브가 없으면 떼어내서 만든 창에서 모든 invoke가 거부된다.",
+  "description": "Inkwell의 메인 창들(다중 창). 창 라벨은 `main`과 `win<n>`이다 — `winmgr.rs`가 발급한다. 글로브가 없으면 떼어내서 만든 창에서 `core:*`·플러그인 invoke가 모두 거부된다(우리 커맨드는 앱 ACL 매니페스트가 없어 ACL을 타지 않는다). 권한은 프론트가 **실제로 부르는 것만** 둔다 — 창을 숨기고 보이고 옮기는 일은 대부분 Rust가 하므로 그쪽에는 권한이 필요 없다.",
   "windows": [
     "main",
     "win*"
@@ -12,28 +12,20 @@
     "core:window:allow-start-resize-dragging",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
-    "core:window:allow-unmaximize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-is-minimized",
     "core:window:allow-close",
     "core:window:allow-destroy",
-    "core:window:allow-hide",
-    "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-set-always-on-top",
-    "core:window:allow-set-ignore-cursor-events",
-    "core:window:allow-scale-factor",
-    "core:window:allow-inner-size",
     "core:window:allow-inner-position",
-    "core:window:allow-unminimize",
     "core:window:allow-outer-position",
     "core:window:allow-outer-size",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
     "core:window:allow-available-monitors",
-    "notification:default",
     "dialog:default"
   ]
 }

@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Inkwell",
-  "version": "0.1.0",
+  "productName": "Floaty Note",
+  "mainBinaryName": "Floaty Note",
+  "version": "1.0.0",
   "identifier": "app.inkwell.notepad",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Inkwell",
+        "title": "Floaty Note",
         "width": 840,
         "height": 520,
         "decorations": false,

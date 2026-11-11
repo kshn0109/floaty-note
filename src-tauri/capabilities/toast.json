@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "toast",
+  "description": "알림 토스트 카드(`toast.html`). 창 라벨은 `inkwell-toast-<n>`이다 — `toast.rs`의 LABEL_PREFIX가 발급한다. 페이지가 쓰는 것은 앱 커맨드 여섯(`toast_payload`·`toast_ready`·`toast_dismiss`·`reminder_open`·`load_settings`·`system_language`)뿐이고 창 API·대화상자·파일은 쓰지 않으므로 권한은 `ghost.json`과 같은 기본 한 줄만 둔다.",
+  "windows": [
+    "inkwell-toast-*"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

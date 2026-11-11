@@ -104,41 +104,145 @@ const hitPlugin = new Plugin<DecorationSet>({
  */
 export function backingRanges(doc: PMNode): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = [];
-  doc.forEach((node, offset) => {
-    if (node.isTextblock) {
-      if (node.content.size === 0) return;
-      out.push({ from: offset + 1, to: offset + 1 + node.content.size });
-      return;
-    }
-    // 글머리 기호 목록은 **항목 줄마다** 칠한다(받침 규칙이 목록 안에서도 줄 단위로
-    // 걸려야 한다 — 시안 L1). 표는 여기 걸리지 않고 `index.css`가 블록 하나로 칠한다.
-    if (node.type !== schema.nodes.bullet_list) return;
-    node.descendants((child, pos) => {
-      if (!child.isTextblock) return true;
-      if (child.content.size > 0) {
-        const at = offset + 1 + pos + 1;
-        out.push({ from: at, to: at + child.content.size });
-      }
-      return false;
-    });
-  });
+  doc.forEach((node, offset) => blockBackingRanges(node, offset, out));
   return out;
+}
+
+/** 맨 위 층 블록 **하나**의 받침 범위. `backingRanges`와 `patchBacking`이 같이 쓴다. */
+function blockBackingRanges(
+  node: PMNode,
+  offset: number,
+  out: { from: number; to: number }[]
+): void {
+  if (node.isTextblock) {
+    if (node.content.size === 0) return;
+    out.push({ from: offset + 1, to: offset + 1 + node.content.size });
+    return;
+  }
+  // 글머리 기호 목록은 **항목 줄마다** 칠한다(받침 규칙이 목록 안에서도 줄 단위로
+  // 걸려야 한다 — 시안 L1). 표는 여기 걸리지 않고 `index.css`가 블록 하나로 칠한다.
+  if (node.type !== schema.nodes.bullet_list) return;
+  node.descendants((child, pos) => {
+    if (!child.isTextblock) return true;
+    if (child.content.size > 0) {
+      const at = offset + 1 + pos + 1;
+      out.push({ from: at, to: at + child.content.size });
+    }
+    return false;
+  });
 }
 
 const backingKey = new PluginKey<DecorationSet>("textBacking");
 
-function backingSet(doc: PMNode): DecorationSet {
-  return DecorationSet.create(
-    doc,
-    backingRanges(doc).map((r) => Decoration.inline(r.from, r.to, { class: "backing" }))
-  );
+function backingDecos(doc: PMNode): Decoration[] {
+  return backingRanges(doc).map((r) => Decoration.inline(r.from, r.to, { class: "backing" }));
 }
 
-const backingPlugin = new Plugin<DecorationSet>({
+/**
+ * 문서 **전체**의 받침 집합. `DecorationSet.create`는 맨 위 층 블록마다 장식 배열을
+ * 통째로 훑으므로(`prosemirror-view`의 `takeSpansForNode`) 블록 수의 **제곱**으로
+ * 느려진다 — 짧은 단락 1MB(≈36,000 블록)에서 한 번에 4.7초다. 그래서 이 길은
+ * **처음 한 번**(문서를 열 때)과 문서가 통째로 바뀔 때만 쓴다. 글자 한 자 입력은
+ * 아래 `patchBacking`이 바뀐 블록만 고친다.
+ */
+export function backingSet(doc: PMNode): DecorationSet {
+  return DecorationSet.create(doc, backingDecos(doc));
+}
+
+/**
+ * `pos`를 품은 **맨 위 층 블록**의 바깥 경계. 블록 사이(깊이 0)의 자리는 어느 쪽
+ * 블록이 바뀐 것인지 알 수 없으므로 **양쪽을 다** 포함한다(지워서 두 블록이 합쳐질 때).
+ */
+function topLevelBounds(doc: PMNode, pos: number): { from: number; to: number } {
+  const p = Math.max(0, Math.min(pos, doc.content.size));
+  const $p = doc.resolve(p);
+  if ($p.depth === 0) {
+    const before = $p.nodeBefore;
+    const after = $p.nodeAfter;
+    return { from: before ? p - before.nodeSize : p, to: after ? p + after.nodeSize : p };
+  }
+  return { from: $p.before(1), to: $p.after(1) };
+}
+
+/** 트랜잭션이 건드린 자리를 **새 문서**의 맨 위 층 블록 경계로 넓혀 모은다(겹치면 합친다). */
+function touchedBlockSpans(tr: Transaction): { from: number; to: number }[] {
+  const raw: { from: number; to: number }[] = [];
+  for (let i = 0; i < tr.steps.length; i += 1) {
+    const rest = tr.mapping.slice(i + 1);
+    tr.mapping.maps[i].forEach((_os, _oe, ns, ne) => {
+      const a = topLevelBounds(tr.doc, rest.map(ns, -1));
+      const b = topLevelBounds(tr.doc, rest.map(ne, 1));
+      raw.push({ from: Math.min(a.from, b.from), to: Math.max(a.to, b.to) });
+    });
+  }
+  raw.sort((x, y) => x.from - y.from);
+  const out: { from: number; to: number }[] = [];
+  for (const span of raw) {
+    const last = out[out.length - 1];
+    if (last && span.from <= last.to) last.to = Math.max(last.to, span.to);
+    else out.push({ ...span });
+  }
+  return out;
+}
+
+/**
+ * `[from, to)`에 **온전히 들어가는** 맨 위 층 블록들의 받침 장식. `from`은 맨 위 층
+ * 블록 경계여야 한다(`touchedBlockSpans`가 그렇게 준다) — 그래서 문서를 처음부터
+ * 훑지 않고 그 자리의 블록부터 센다.
+ */
+function backingDecosIn(doc: PMNode, from: number, to: number): Decoration[] {
+  const ranges: { from: number; to: number }[] = [];
+  const $from = doc.resolve(Math.max(0, Math.min(from, doc.content.size)));
+  let offset = $from.depth === 0 ? from : 0;
+  let i = $from.depth === 0 ? $from.index(0) : 0;
+  for (; i < doc.childCount && offset < to; i += 1) {
+    const node = doc.child(i);
+    const end = offset + node.nodeSize;
+    if (offset >= from && end <= to) blockBackingRanges(node, offset, ranges);
+    offset = end;
+  }
+  return ranges.map((r) => Decoration.inline(r.from, r.to, { class: "backing" }));
+}
+
+/**
+ * 받침 집합을 **바뀐 블록만** 고쳐 잇는다 — 글자 하나 입력에 문서 전체를 다시 세우던
+ * 것이 블록 수의 제곱이라 1MB 메모에서 타자 한 번에 4.7초가 걸렸다.
+ *
+ * 순서: `map`으로 자리를 옮기고(선형), 트랜잭션이 건드린 맨 위 층 블록의 장식만
+ * 걷어 내고(`find`+`remove`) 그 블록들을 다시 센다. 결과는 통째로 다시 만든 것과
+ * **같다**(`scripts/backing-perf.test.ts`가 1MB에서 확인한다).
+ *
+ * 바뀐 자리가 문서의 절반을 넘으면(불러오기·전체 붙여넣기) 통째로 다시 만든다 —
+ * 그때는 걷어 내고 다시 넣는 쪽이 오히려 비싸다.
+ */
+function patchBacking(tr: Transaction, old: DecorationSet): DecorationSet {
+  const mapped = old.map(tr.mapping, tr.doc);
+  const spans = touchedBlockSpans(tr);
+  if (spans.length === 0) return mapped;
+  let changed = 0;
+  for (const s of spans) changed += s.to - s.from;
+  if (changed * 2 >= tr.doc.content.size) return backingSet(tr.doc);
+  const stale: Decoration[] = [];
+  const fresh: Decoration[] = [];
+  for (const s of spans) {
+    for (const d of mapped.find(s.from, s.to)) stale.push(d);
+    for (const d of backingDecosIn(tr.doc, s.from, s.to)) fresh.push(d);
+  }
+  // 흔한 경우(단락 속에 글자 하나)에는 `map`이 이미 장식을 늘려 놓아 고칠 것이 없다 —
+  // 그때는 걷어 내고 다시 넣는 두 번의 훑기를 건너뛴다.
+  const same =
+    stale.length === fresh.length &&
+    stale.every((d, i) => d.from === fresh[i].from && d.to === fresh[i].to);
+  if (same) return mapped;
+  return mapped.remove(stale).add(tr.doc, fresh);
+}
+
+/** 시험(`scripts/backing-perf.test.ts`)이 이 플러그인만 올린 상태로 돌릴 수 있게 밖으로 낸다. */
+export const backingPlugin = new Plugin<DecorationSet>({
   key: backingKey,
   state: {
     init: (_cfg, state) => backingSet(state.doc),
-    apply: (tr, old) => (tr.docChanged ? backingSet(tr.doc) : old),
+    apply: (tr, old) => (tr.docChanged ? patchBacking(tr, old) : old),
   },
   props: {
     decorations: (state) => backingKey.getState(state) ?? DecorationSet.empty,
@@ -241,17 +345,6 @@ export class MarkdownHost implements DocHost {
   }
 
   /**
-   * Backspace·Delete가 표를 만났을 때. 처리했으면 `true`(= `baseKeymap`으로 넘기지 않는다).
-   *
-   *   1. 표가 통째로 골라져 있으면 지운다.
-   *   2. 칸이 **표 전체**만큼 골라져 있으면 지운다 — `prosemirror-tables`의 기본은 칸
-   *      **내용만** 비우는 것이라 표가 남았다(사용자 보고의 한 갈래).
-   *   3. 표 바로 뒤 블록의 맨 앞(Backspace) · 바로 앞 블록의 맨 끝(Delete)이면 그 표를
-   *      **고른다**. 한 번 더 누르면 1번으로 지워진다.
-   *
-   * 그 밖에는 `false`를 돌려 평소의 지우기가 그대로 동작하게 둔다.
-   */
-  /**
    * 목록 명령 하나를 키로 돌린다. 할 일이 없으면 `false`를 돌려 **다음 처리기**로
    * 넘긴다(표 키 · `baseKeymap`). 명령 하나 = 실행 취소 한 번이다.
    */
@@ -268,6 +361,17 @@ export class MarkdownHost implements DocHost {
     return true;
   }
 
+  /**
+   * Backspace·Delete가 표를 만났을 때. 처리했으면 `true`(= `baseKeymap`으로 넘기지 않는다).
+   *
+   *   1. 표가 통째로 골라져 있으면 지운다.
+   *   2. 칸이 **표 전체**만큼 골라져 있으면 지운다 — `prosemirror-tables`의 기본은 칸
+   *      **내용만** 비우는 것이라 표가 남았다(사용자 보고의 한 갈래).
+   *   3. 표 바로 뒤 블록의 맨 앞(Backspace) · 바로 앞 블록의 맨 끝(Delete)이면 그 표를
+   *      **고른다**. 한 번 더 누르면 1번으로 지워진다.
+   *
+   * 그 밖에는 `false`를 돌려 평소의 지우기가 그대로 동작하게 둔다.
+   */
   private tableDeleteKey(
     state: EditorState,
     dispatch: ((tr: Transaction) => void) | undefined,
@@ -631,6 +735,10 @@ export class MarkdownHost implements DocHost {
       );
     }
     const tr = this.state.tr;
+    // 받침과 **뿌리가 같은** 비용이 여기에도 있다: `DecorationSet.create`는 맨 위 층
+    // 블록마다 장식 배열을 통째로 훑는다(블록 수 × 일치 수). 받침처럼 고치지 않는
+    // 이유는 일치 목록은 글자를 칠 때마다 **통째로 새로** 오기 때문이다(찾을 말이
+    // 바뀌면 이어 붙일 옛 집합이 없다). 일치가 아주 많은 큰 메모에서는 여기가 남는다.
     tr.setMeta(hitKey, DecorationSet.create(this.state.doc, decos));
     tr.setMeta("addToHistory", false);
     this.state = this.state.apply(tr);

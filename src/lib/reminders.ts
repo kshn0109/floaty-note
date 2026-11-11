@@ -264,11 +264,6 @@ export async function reminderState(): Promise<ReminderState> {
   }
 }
 
-/** 대기 중인 예약만 — 예약 목록 화면이 붙을 자리. */
-export async function listReminders(): Promise<Reminder[]> {
-  return (await reminderState()).pending;
-}
-
 /**
  * 창이 뜨기 **전에** 눌린 토스트가 남겨 둔 요청을 가져온다(두 번 읽히지 않게 꺼내 간다).
  * 트레이에 상주하던 중 토스트를 누르면 창이 그때 만들어지므로, 이벤트만으로는 리스너가

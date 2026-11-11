@@ -12,7 +12,7 @@
 //! 보내며(`recent_add`), 맨 앞으로 올리고 중복을 지우고 상한을 지키는 일은 여기서 한다.
 //! 쓴 뒤에는 **모든 창에** 알린다.
 //!
-//! 쓰기는 임시 파일 → rename이다(`session::write_atomic` — 세션·설정과 같은 규칙).
+//! 쓰기는 임시 파일 → 제자리 바꿔치기다(`session::write_atomic` — 세션·설정과 같은 규칙).
 
 use std::fs;
 use std::path::PathBuf;

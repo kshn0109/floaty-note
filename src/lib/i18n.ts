@@ -238,7 +238,7 @@ const STRINGS = {
   remindListCountFmt: ["%d reminders", "예약된 알림 %d"],
   remindSetFmt: ["Reminder set — %s", "알림 예약됨 — %s"],
   remindNoSelection: ["Select some text first", "먼저 텍스트를 선택하세요"],
-  toastTitle: ["Inkwell reminder", "Inkwell 알림"],
+  toastTitle: ["Floaty Note reminder", "Floaty Note 알림"],
   toastMissedFmt: ["(missed %s) %s", "(놓침 %s) %s"],
   /**
    * 원본에 없던 행 **하나**. 원본은 `(missed %s) %s` 한 줄로 시각과 본문을 함께 찍었는데,
@@ -252,10 +252,10 @@ const STRINGS = {
   devToastPreviewMissed: ["Missed toast preview (dev)", "놓친 알림 미리보기(개발용)"],
   // `devRemindSoon`("선택한 글 1분 뒤 알림")은 **지웠다**(단계 10): 예약 창이 생겨
   // 실제 예약을 넣는 길이 UI에 있으므로 개발용 우회로가 필요 없다.
-  trayNoticeTitle: ["Inkwell is still running", "Inkwell이 계속 실행 중입니다"],
-  trayNoticeBody: ["Inkwell is still running to deliver your reminders. Right-click the tray icon to open it or to quit.", "예약한 알림을 띄우기 위해 Inkwell이 트레이에서 계속 실행됩니다. 트레이 아이콘을 오른쪽 클릭하면 열거나 종료할 수 있습니다."],
-  trayMenuTitle: ["Inkwell", "Inkwell"],
-  trayOpen: ["Open Inkwell", "Inkwell 열기"],
+  trayNoticeTitle: ["Floaty Note is still running", "Floaty Note가 계속 실행 중입니다"],
+  trayNoticeBody: ["Floaty Note is still running to deliver your reminders. Right-click the tray icon to open it or to quit.", "예약한 알림을 띄우기 위해 Floaty Note가 트레이에서 계속 실행됩니다. 트레이 아이콘을 오른쪽 클릭하면 열거나 종료할 수 있습니다."],
+  trayMenuTitle: ["Floaty Note", "Floaty Note"],
+  trayOpen: ["Open Floaty Note", "Floaty Note 열기"],
   trayExit: ["Exit", "종료"],
   ctxTitle: ["Edit", "편집"],
   menuUndo: ["Undo", "실행 취소"],
@@ -281,7 +281,7 @@ const STRINGS = {
   dlgBtnDontSave: ["Don't save", "저장 안 함"],
   dlgBtnCancel: ["Cancel", "취소"],
   dlgBtnOk: ["OK", "확인"],
-  toastFooterFmt: ["Inkwell · %ls", "Inkwell · %ls"],
+  toastFooterFmt: ["Floaty Note · %ls", "Floaty Note · %ls"],
   tabUntitled: ["Untitled", "제목 없음"],
   menuNewTab: ["New Tab", "새 탭"],
   menuCloseTab: ["Close Tab", "탭 닫기"],
@@ -295,7 +295,7 @@ const STRINGS = {
   menuExit: ["Exit", "끝내기"],
 
   // --- 설정 화면(시안 S) ---
-  settingsStartup: ["When Inkwell starts", "Inkwell이 시작될 때"],
+  settingsStartup: ["When Floaty Note starts", "Floaty Note가 시작될 때"],
   settingsStartupRestore: ["Open content from the previous session", "이전 세션의 콘텐츠 열기"],
   settingsStartupFresh: [
     "Start new session and discard unsaved changes",
@@ -323,11 +323,15 @@ const STRINGS = {
   // **같은 글자**를 쓴다(시안 G1의 글자 그대로).
   settingsFontPreview: ["가나다 Abc 123", "가나다 Abc 123"],
   // 오른쪽 아래 11px dim 한 줄. 버전은 `tauri.conf.json`의 값을 그대로 읽는다.
-  settingsVersionFmt: ["Inkwell · version %s", "Inkwell · 버전 %s"],
+  settingsVersionFmt: ["Floaty Note · version %s", "Floaty Note · 버전 %s"],
 
   // 탭 줄이 넘칠 때의 ◀ ▶ (시안에 없는 경우 — 원본 밴드의 규칙을 따랐다).
   tabScrollLeft: ["Scroll tabs left", "탭 왼쪽으로"],
   tabScrollRight: ["Scroll tabs right", "탭 오른쪽으로"],
+  // 「N ▾」 탭 목록(승인된 시안 T1) — 버튼 설명과 팝업 이름.
+  // 메모장 11에는 이 버튼이 없다(의도된 추가 — 사용자 결정 2026-11-10).
+  tabListFmt: ["All tabs (%d)", "모든 탭 (%d)"],
+  tabListTitle: ["All tabs", "모든 탭"],
 
   // --- 아래는 Tauri 버전에서 새로 생긴 화면의 문자열 (원본 표에는 없음) ---
   // 시안 R5 + 메모 목록: 왼쪽 패널을 켜고 끄는 버튼과 ☰ › 보기의 행이 같은 문자열을 쓴다.
@@ -396,10 +400,6 @@ export function setLangMode(next: LangMode): void {
 export function setSystemLang(next: Lang): void {
   systemLang = next === "ko" ? "ko" : "en";
   active = resolve(mode);
-}
-
-export function langMode(): LangMode {
-  return mode;
 }
 
 /** 지금 실제로 그려지는 언어. */

@@ -3,7 +3,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t, tf } from "../lib/i18n";
 import { TINT_DOTS } from "../lib/palette";
 import { listMomentText, reminderDocName, sortByDue, type Reminder } from "../lib/reminders";
-import { placeBox, type Anchor, type Placement } from "./Popup";
+import { placeBox, SCREEN_MARGIN, type Anchor, type Placement } from "./Popup";
 
 /**
  * 예약 목록 — 승인된 시안 `Reminder.dc.html`의 오른쪽 열.
@@ -23,10 +23,9 @@ const PAD = 5;
 const BORDER = 1;
 const HEAD_H = 22;
 const ROW_H = 44;
-const SCREEN_MARGIN = 8;
 
 /** 줄 수에 따른 카드 높이. 화면을 넘길 만큼 많으면 줄 영역이 스크롤한다. */
-export function listHeight(count: number): number {
+function listHeight(count: number): number {
   const full = 2 * (PAD + BORDER) + HEAD_H + ROW_H * count;
   const room = window.innerHeight - 2 * SCREEN_MARGIN;
   return Math.min(full, Math.max(room, 2 * (PAD + BORDER) + HEAD_H + ROW_H));

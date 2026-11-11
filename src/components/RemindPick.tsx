@@ -46,7 +46,7 @@ const WHEEL_H = 104; // 머리말 18 + 앞 26 + 선택 34 + 뒤 26
 const FOOT_H = 30;
 const GAP = 10;
 /** 카드 높이는 고정이다 — 자리 계산에 측정이 없다(팝업 가족과 같은 규칙). */
-export const CARD_H = 2 * (PAD + BORDER) + PREVIEW_H + GAP + WHEEL_H + GAP + FOOT_H;
+const CARD_H = 2 * (PAD + BORDER) + PREVIEW_H + GAP + WHEEL_H + GAP + FOOT_H;
 
 /** 칸 폭(바깥 / 선택 값 네모) + 그 칸 **뒤에** 오는 구분 글자. 시안 그대로. */
 const COLUMNS: Record<PickField, { w: number; box: number; after: string; gap: number }> = {

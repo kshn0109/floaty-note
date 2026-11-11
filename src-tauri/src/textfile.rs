@@ -173,8 +173,9 @@ pub fn read_text_file(path: String) -> Result<ReadResult, String> {
 }
 
 /// 같은 폴더의 임시 파일을 제자리로 옮긴다. 대상이 있어도 덮어쓴다.
+/// (세션·설정·알림·최근 파일의 `session::write_atomic`도 이 함수를 쓴다.)
 #[cfg(windows)]
-fn replace_file(temp: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn replace_file(temp: &Path, dest: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
@@ -200,7 +201,7 @@ fn replace_file(temp: &Path, dest: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn replace_file(temp: &Path, dest: &Path) -> Result<(), String> {
+pub(crate) fn replace_file(temp: &Path, dest: &Path) -> Result<(), String> {
     fs::rename(temp, dest).map_err(|e| e.to_string())
 }
 

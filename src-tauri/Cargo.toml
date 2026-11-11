@@ -1,6 +1,6 @@
 [package]
 name = "inkwell"
-version = "0.1.0"
+version = "1.0.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"
@@ -23,8 +23,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-notification = "2"
-tauri-plugin-fs = "2"
+# 파일 대화상자(`열기`·`다른 이름으로 저장`)만 플러그인을 쓴다. 파일 읽기·쓰기는
+# `src/textfile.rs`의 커맨드 둘이고, 알림 카드는 `src/toast.rs`가 직접 띄운다 —
+# 그래서 `tauri-plugin-fs`·`tauri-plugin-notification`은 쓰지 않는다(Store 최소 권한).
 tauri-plugin-dialog = "2"
 
 

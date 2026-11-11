@@ -12,6 +12,7 @@ import {
   listMode,
   pageScroll,
   scrollToPill,
+  wheelDir,
   LIST_FULL_MIN_WIDTH,
   type Span,
 } from "../src/lib/tabStrip";
@@ -74,6 +75,45 @@ describe("◀ ▶ — 알약 경계에 맞춰 멈춘다", () => {
   it("한 알약도 못 갈 자리에서는 앞 알약으로 물러난다", () => {
     // 줄이 넓어서 한 화면 되돌리면 0보다 작아지는 경우.
     expect(pageScroll(spans, 500, 104, -1, 16)).toBe(0);
+  });
+});
+
+/**
+ * 휠 = `◀ ▶` 한 번 클릭 (사용자 확정 2026-11-10). 방향만 고르고 자리는 `pageScroll`이
+ * 그대로 정하므로, 시험도 "방향"과 "휠 한 칸의 결과가 화살표 한 번과 같은가"만 본다.
+ */
+describe("탭 줄 휠 — 방향", () => {
+  it("아래/오른쪽은 +1, 위/왼쪽은 -1", () => {
+    expect(wheelDir(0, 100)).toBe(1);
+    expect(wheelDir(0, -100)).toBe(-1);
+    expect(wheelDir(100, 0)).toBe(1);
+    expect(wheelDir(-100, 0)).toBe(-1);
+  });
+
+  it("두 축이 같이 오면 큰 쪽을 따른다 (터치패드)", () => {
+    expect(wheelDir(40, -3)).toBe(1);
+    expect(wheelDir(-40, 3)).toBe(-1);
+    expect(wheelDir(2, -40)).toBe(-1);
+  });
+
+  it("움직이지 않았으면 0 — 아무 일도 하지 않는다", () => {
+    expect(wheelDir(0, 0)).toBe(0);
+  });
+
+  it("휠 한 칸 = 화살표 한 번 (알약 경계에 맞춰 한 알약씩)", () => {
+    const spans = pills(5);
+    const view = 250;
+    const max = 516 - view;
+    const next = pageScroll(spans, view, 0, wheelDir(0, 120) as 1, max);
+    expect(next).toBe(pageScroll(spans, view, 0, 1, max));
+    expect(next).toBe(208);
+    expect(pageScroll(spans, view, 208, wheelDir(0, -120) as -1, max)).toBe(0);
+  });
+
+  it("넘치지 않으면 자리가 그대로다 (움직일 곳이 없다)", () => {
+    const spans = pills(3);
+    expect(pageScroll(spans, 400, 0, wheelDir(0, 120) as 1, 0)).toBe(0);
+    expect(pageScroll(spans, 400, 0, wheelDir(0, -120) as -1, 0)).toBe(0);
   });
 });
 

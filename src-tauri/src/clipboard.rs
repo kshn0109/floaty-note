@@ -22,7 +22,7 @@ pub fn clipboard_read_text() -> String {
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
-    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 
     const CF_UNICODETEXT: u32 = 13;
 
@@ -46,8 +46,16 @@ pub fn clipboard_read_text() -> String {
             return String::new();
         }
         // 끝은 NUL이다(CF_UNICODETEXT의 규약). 길이를 먼저 세고 한 번에 옮긴다.
+        // **블록 크기를 넘지 않게 센다**: 규약을 안 지킨 앱이 NUL 없는 글을 올리면
+        // 끝없이 남의 메모리를 읽게 된다(그쪽이 틀려도 우리가 죽을 수는 없다).
+        // `GlobalSize`가 0을 주면(크기를 알 수 없는 핸들) 예전처럼 NUL까지 센다 —
+        // 상한을 못 구한 것이 "빈 클립보드"로 보이면 붙여넣기가 조용히 안 되는 쪽이 된다.
+        let cap = match GlobalSize(handle) / 2 {
+            0 => usize::MAX,
+            units => units,
+        };
         let mut len = 0usize;
-        while *ptr.add(len) != 0 {
+        while len < cap && *ptr.add(len) != 0 {
             len += 1;
         }
         let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));

@@ -65,6 +65,11 @@ export interface TabDragHandlers {
    * 전에 이것을 묻는다.
    */
   tore: () => boolean;
+  /**
+   * 지금 끌고 있는가(누른 뒤 아직 떼지 않았다). 탭 줄의 **휠 넘기기**가 끌기 중에
+   * 끼어들지 않으려고 묻는다 — 끌면서 줄이 움직이면 놓을 자리가 포인터 밑에서 바뀐다.
+   */
+  active: () => boolean;
 }
 
 export function useTabDrag(options: TabDragOptions): TabDragHandlers {
@@ -78,6 +83,7 @@ export function useTabDrag(options: TabDragOptions): TabDragHandlers {
   const tore = useRef(false);
 
   return {
+    active: () => drag.current !== null,
     tore: () => {
       const was = tore.current;
       tore.current = false;

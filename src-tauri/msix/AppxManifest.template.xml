@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Inkwell MSIX 매니페스트 템플릿.
+  {{...}} 자리는 scripts/msix/make-msix.ps1이 src-tauri/msix/msix.config.json 값으로 바꾼다.
+  직접 고치지 말고 msix.config.json을 고칠 것.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="{{identityName}}"
+    Publisher="{{publisher}}"
+    Version="{{version}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>{{displayName}}</DisplayName>
+    <PublisherDisplayName>{{publisherDisplayName}}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>{{description}}</Description>
+  </Properties>
+
+  <Dependencies>
+    <!-- Win10 1809(17763)부터. Store 제출 시 MaxVersionTested는 테스트한 최신 빌드. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+{{resourceLanguages}}
+  </Resources>
+
+  <Applications>
+    <Application Id="FloatyNote" Executable="Floaty Note.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="{{displayName}}"
+        Description="{{description}}"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png"
+          ShortName="{{displayName}}">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo" />
+            <uap:ShowOn Tile="wide310x150Logo" />
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="transparent" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- .txt / .md "연결 프로그램". 패키지 앱은 선택된 파일 경로를 명령줄로 받고,
+             src-tauri/src/cli.rs의 file_args()가 그 인자를 읽어 탭으로 연다. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="inkwelltext">
+            <uap:DisplayName>{{displayName}}</uap:DisplayName>
+            <uap:Logo>Assets\StoreLogo.png</uap:Logo>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.txt</uap:FileType>
+              <uap:FileType>.md</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- 데스크톱 전체 신뢰 앱. 그 밖의 권한은 쓰지 않는다(네트워크 사용 없음). -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

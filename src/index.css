@@ -385,6 +385,24 @@ button {
   color: var(--text);
 }
 
+/* 「N ▾」 탭 목록 버튼 — 넘칠 때만(= `◀ ▶`가 있을 때만) 보인다. 시안 T1: w34 h26 r13,
+   11px, hover 배경. `flex-shrink: 0`이라 알약 줄이 이 34px을 양보한다. */
+.tab-list-btn {
+  border: 0;
+  width: 34px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: var(--bg-chip);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tab-list-btn:hover {
+  background: var(--hover);
+}
+
 /* 알약 탭 */
 .tab-pill {
   border: 0;
@@ -667,7 +685,11 @@ button {
   /* 큰 문서 대책(§11): 화면 밖 블록의 레이아웃·페인트를 건너뛴다. DOM 노드는 남으므로
      선택·찾기·IME가 그대로 동작한다. Chromium 85+ = WebView2 Win10/11 모두 OK. */
   content-visibility: auto;
-  contain-intrinsic-size: auto 26px;
+  /* 아직 안 그린 블록의 가정 높이 = **한 줄**(줄 간격 1.75). `em`으로 적는다(전에는
+     `26px` = 15px 본문의 한 줄을 박아 둔 값이었다 — 사용자 보고: 확대/축소를 하면
+     여백이 벌어진다): 화면 밖 블록이 옛 배율의 높이로 남아 줄 사이가 벌어지고
+     스크롤이 튀었다. `em`은 `--doc-size`와 `--zoom`을 그대로 따라간다. */
+  contain-intrinsic-size: auto 1.75em;
 }
 
 /* 제목은 **크기만** 다르다 — 굵기·색·줄 간격은 본문과 같다(원본 규칙).
@@ -709,19 +731,25 @@ button {
 .editor .pm ul ul > li::before { content: "◦"; }
 .editor .pm ul ul ul > li::before { content: "▪"; }
 
-/* 형광펜 — 시안 A의 칠한 글자 그대로 (배경색 + #14171A, r3, 좌우 2). */
+/* 형광펜 — 시안 A의 칠한 글자 그대로 (배경색 + #14171A, r3, 좌우 2).
+   **글자에 붙는 장식이므로 `em`으로 적는다**(사용자 보고: 확대하면 형광펜이 글자와
+   어긋난다). 0.1333em × 15px = 2px, 0.2em × 15px = 3px이라 100%에서는 모습이 같고,
+   배율·글꼴 크기(`--doc-size`)가 바뀌면 칠한 자리가 글자를 그대로 따라간다. */
 .editor .pm mark {
   color: #14171a;
-  border-radius: 3px;
-  padding: 0 2px;
+  border-radius: 0.2em;
+  padding: 0 0.1333em;
 }
 
 /* 표 — 격자 칸 r4 + 1px 표 테두리 색 (MIGRATION_HANDOFF §3의 모서리/색 표).
    시안에 편집 영역 안의 표가 없어 칸 간격은 2px로 두었다(칸마다 r4가 보이게). */
 .editor .pm table {
   border-collapse: separate;
-  border-spacing: 2px;
-  margin: 2px 0;
+  /* 칸 간격·여백·안쪽 여백은 **글자에 붙는 수치**라 `em`이다(확대/축소를 따라간다 —
+     사용자 보고). 0.1333em × 15px = 2px, 0.4667em × 15px = 7px으로 100%에서는 같다.
+     테두리 1px만은 그대로 둔다(머리카락 선 — 창 UI의 선과 같은 부류). */
+  border-spacing: 0.1333em;
+  margin: 0.1333em 0;
   table-layout: fixed;
   width: 100%;
 }
@@ -729,8 +757,8 @@ button {
 .editor .pm th,
 .editor .pm td {
   border: 1px solid var(--table-border);
-  border-radius: 4px;
-  padding: 2px 7px;
+  border-radius: 0.2667em;
+  padding: 0.1333em 0.4667em;
   font-weight: inherit;
   text-align: left;
   vertical-align: top;
@@ -781,7 +809,8 @@ button {
    줄 끝의 빈 자리까지 큰 사각형으로 칠해졌다(사용자 보고). 인라인은 그 문제가 없다. */
 .win[data-backing="1"] .editor .backing {
   background: var(--text-backing);
-  border-radius: 6px;
+  /* 글자에 붙는 장식이라 `em`(0.4em × 15px = 6px — 100%에서 같은 모습). */
+  border-radius: 0.4em;
   /* 받침 띠를 **줄 상자**(줄 간격 1.75) 높이로 — 인라인의 세로 패딩은 줄 높이를
      바꾸지 않으므로 글의 배치·줄 수·커서 자리가 그대로다. 값은 `displayMode.ts`가
      글꼴을 실제로 재서 넣는다(본문 글꼴과 고정폭 글꼴이 다르다). */
@@ -802,7 +831,7 @@ button {
    장식을 받지 않는다 — 칸마다 따로 칠하면 격자가 얼룩덜룩해진다. */
 .win[data-backing="1"] .editor .pm > table {
   background: var(--text-backing);
-  border-radius: 6px;
+  border-radius: 0.4em;
 }
 
 /* 형광펜이 칠해진 글자에서는 **형광펜 색만** 보여야 한다(원본 규칙: 펜 배경색 +
@@ -820,6 +849,25 @@ button {
 .win[data-backing="1"] .editor .pm mark {
   padding-top: var(--backing-bleed);
   padding-bottom: var(--backing-bleed);
+}
+
+/* …그리고 **받침이 형광펜을 덮지 않게** 한다(사용자 보고 2: 글자 뒤 배경을 켜면
+   형광펜이 안 보이거나 받침 밑에 깔린다).
+
+   원인: ProseMirror는 인라인 장식을 **마크 안쪽**에 넣는다(`prosemirror-view`의
+   `patchOuterDeco` — 마크의 DOM이 부모, 장식 `<span>`이 자식). 그래서 실제 DOM이
+   `<mark style="background:#FFEB3B"><span class="backing">…</span></mark>`이고,
+   자식이 부모 위에 칠해지므로 받침색(펜 색을 종이색에 20/22%만 남긴 옅은 색)이
+   형광펜을 **덮어** 버렸다. 받침이 꺼져 있을 때는 `--text-backing`이 투명해서
+   보이지 않다가 켜는 순간 생기는 것도 이 때문이다.
+
+   고침: 형광펜 안쪽의 받침만 투명으로 돌린다. 세로 패딩은 그대로 두어도 좋다 —
+   인라인의 세로 패딩은 줄 높이를 바꾸지 않고, 바로 위 규칙이 `mark` 자신에게 같은
+   여유를 주므로 **형광펜이 줄 상자를 꽉 채워** 이웃 줄의 받침 띠와 높이가 맞는다.
+   일반 텍스트 탭에는 형광펜이 없으므로(`PlainHost.exec`의 `highlight` → `false`)
+   이 규칙도 마크다운 탭에만 걸린다. */
+.win[data-backing="1"] .editor .pm mark .backing {
+  background: transparent;
 }
 
 /* 스크롤 막대: 틀·화살표 없음, 둥근 막대만. 마우스가 창 위에 있을 때만 보인다.
@@ -848,6 +896,8 @@ button {
   background-clip: padding-box;
 }
 
+/* 마우스가 창 안에 있으면 보인다. (오버레이에서 빈 곳 hover로도 보이게 했던 변경은
+   사용자 요청으로 되돌렸다 — 2026-11-10.) */
 .win[data-hover="1"] .editor::-webkit-scrollbar-thumb,
 .win[data-hover="1"] .editor .cm-scroller::-webkit-scrollbar-thumb,
 .win[data-hover="1"] .notelist-scroll::-webkit-scrollbar-thumb {
@@ -966,10 +1016,6 @@ button {
   font-weight: 600;
 }
 
-.dock-dim {
-  color: var(--dim);
-}
-
 .dock-opacity {
   width: auto;
   padding: 0 7px;
@@ -1020,11 +1066,6 @@ button {
 
 .opacity-row-label > .opacity-row-key {
   margin-top: 1px;
-}
-
-.opacity-hairline {
-  height: 1px;
-  background: var(--hair);
 }
 
 /* 트랙은 시안대로 4px이지만 그대로는 잡기 어려우니 보이지 않는 20px 높이의
@@ -1188,6 +1229,14 @@ button {
 
 .popup-label {
   flex-grow: 1;
+}
+
+/* 탭 목록의 줄(시안 T1) — 이름이 길면 `…`로 자른다(알약과 같은 규칙).
+   행 높이·반지름·hover는 `.popup-row` 그대로라 새 모양이 아니다. */
+.popup-tab > .popup-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .popup-key,
@@ -1867,6 +1916,7 @@ button {
   color: var(--text);
   font: inherit;
   font-size: 12px;
+  cursor: text;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -2109,10 +2159,6 @@ button {
 .dialog button:focus-visible {
   outline: 1px solid var(--text);
   outline-offset: 1px;
-}
-
-.find-input {
-  cursor: text;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2401,21 +2447,6 @@ button {
   flex-grow: 1;
   min-width: 0;
   overflow-wrap: break-word;
-}
-
-.set-pick {
-  border: 0;
-  height: 26px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 12px;
-  background: var(--hover);
-  color: var(--text);
 }
 
 .set-caret {

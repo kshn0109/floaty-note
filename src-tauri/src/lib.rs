@@ -99,64 +99,77 @@ pub fn run() {
         }
     }
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(overlay::Overlay::default())
         .manage(cli::CliFiles::default())
         .manage(winmgr::Windows::default())
         .manage(session::SessionState::default())
         .manage(drag::Drag::default())
         .manage(reminders::Reminders::default())
-        .manage(toast::Toasts::default())
-        .invoke_handler(tauri::generate_handler![
-            cli::take_cli_files,
-            clipboard::clipboard_read_text,
-            drag::drag_begin,
-            drag::drag_end,
-            drag::ghost_paint,
-            fonts::system_fonts,
-            overlay::set_overlay,
-            overlay::set_overlay_hit_rects,
-            recent::recent_add,
-            recent::recent_list,
-            recent::recent_remove,
-            reminders::reminder_add,
-            reminders::reminder_cancel,
-            reminders::reminder_state,
-            reminders::reminder_take_reveal,
-            toast::reminder_open,
-            toast::toast_dismiss,
-            toast::toast_payload,
-            toast::toast_preview,
-            toast::toast_ready,
-            session::session_load,
-            session::session_load_buffer,
-            session::session_put_window,
-            session::session_freeze_window,
-            session::session_forget_window,
-            session::session_adopt,
-            session::session_counts,
-            session::session_clear,
-            settings::load_settings,
-            settings::save_settings,
-            syscmd::sys_command,
-            syscmd::system_language,
-            syscmd::time_date_stamp,
-            textfile::read_text_file,
-            textfile::write_text_file,
-            winmgr::app_close_all,
-            winmgr::tab_transfer,
-            winmgr::window_activate_tab,
-            winmgr::window_boot,
-            winmgr::window_create,
-            winmgr::window_drop_zones,
-            winmgr::window_focus,
-            winmgr::window_mark_drop,
-            winmgr::window_put_tabs,
-            winmgr::window_set_drop_zone
-        ])
+        .manage(toast::Toasts::default());
+
+    // 커맨드 표. `tauri::generate_handler!`는 목록 항목에 `#[cfg(...)]`를 받지 못하므로
+    // (경로만 받는다) 목록 자체를 매크로에 넣고 **디버그 전용 커맨드만** 뒤에 붙인다 —
+    // 목록이 두 벌로 갈라지지 않는다.
+    macro_rules! inkwell_handler {
+        ($($extra:path),* $(,)?) => {
+            tauri::generate_handler![
+                cli::take_cli_files,
+                clipboard::clipboard_read_text,
+                drag::drag_begin,
+                drag::drag_end,
+                drag::ghost_paint,
+                fonts::system_fonts,
+                overlay::set_overlay,
+                overlay::set_overlay_hit_rects,
+                recent::recent_add,
+                recent::recent_list,
+                recent::recent_remove,
+                reminders::reminder_add,
+                reminders::reminder_cancel,
+                reminders::reminder_state,
+                reminders::reminder_take_reveal,
+                toast::reminder_open,
+                toast::toast_dismiss,
+                toast::toast_payload,
+                toast::toast_ready,
+                session::session_load,
+                session::session_load_buffer,
+                session::session_put_window,
+                session::session_freeze_window,
+                session::session_forget_window,
+                session::session_adopt,
+                session::session_counts,
+                session::session_clear,
+                settings::load_settings,
+                settings::save_settings,
+                syscmd::sys_command,
+                syscmd::system_language,
+                syscmd::time_date_stamp,
+                textfile::read_text_file,
+                textfile::write_text_file,
+                winmgr::app_close_all,
+                winmgr::tab_transfer,
+                winmgr::window_activate_tab,
+                winmgr::window_boot,
+                winmgr::window_create,
+                winmgr::window_drop_zones,
+                winmgr::window_focus,
+                winmgr::window_mark_drop,
+                winmgr::window_put_tabs,
+                winmgr::window_set_drop_zone,
+                $($extra),*
+            ]
+        };
+    }
+
+    #[cfg(debug_assertions)]
+    let builder = builder.invoke_handler(inkwell_handler![toast::toast_preview]);
+    #[cfg(not(debug_assertions))]
+    let builder = builder.invoke_handler(inkwell_handler![]);
+
+    builder
         // 창 목록과 "마지막으로 활성이던 창"을 여기서 센다 — 그 답을 창 하나에 매달면
         // 그 창이 닫힐 때 답이 사라진다(원본 설계의 「보이지 않는 앱 창」과 같은 자리).
         .on_window_event(|window, event| {

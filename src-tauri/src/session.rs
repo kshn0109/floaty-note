@@ -32,7 +32,8 @@
 //! 전부 지운다"**이고 상한이 없다. `keep` 목록을 프론트가 주지 않고 여기서 인덱스를 읽어
 //! 구하는 이유가 그것이다: 한 창이 자기 탭만 담은 `keep`을 주면 다른 창의 버퍼를 지운다.
 //!
-//! 모든 쓰기는 **임시 파일 → rename**이다. 쓰는 도중에 죽어도 이전 세션이 멀쩡히 남는다.
+//! 모든 쓰기는 **임시 파일 → 제자리 바꿔치기**다(`write_atomic`). 쓰는 도중에 죽어도
+//! 이전 세션이 멀쩡히 남는다.
 //! 쓰는 순서도 원본과 같다: 버퍼를 먼저 다 쓰고, 그 다음 인덱스, **성공한 뒤에** 정리.
 //!
 //! 쓰기가 하나도 실패하지 않았을 때만 `Ok`다. 프론트는 실패를 받으면 **탭마다 D1로 묻는
@@ -184,22 +185,30 @@ fn safe_buffer_name(name: &str) -> Result<(), String> {
     }
 }
 
-/// 임시 파일에 쓰고 fsync한 뒤 제자리로 옮긴다. Windows의 `fs::rename`은 대상이 있으면
-/// 실패하므로 지우고 옮긴다(설정 저장과 같은 방식).
+/// 임시 파일에 쓰고 fsync한 뒤 제자리로 **바꿔치기한다**(`textfile::replace_file` =
+/// Windows `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`).
+///
+/// 예전에는 "지우고 옮기기"였다. `fs::rename`이 Windows에서 대상이 있으면 실패하기
+/// 때문인데, 그 사이(지운 뒤 · 옮기기 전)에 죽으면 **세션 파일이 아예 없다** — 임시
+/// 파일 → rename이 막으려던 바로 그 사고다. 한 번에 바꿔치기하면 그 틈이 없다.
+/// 세션·설정·알림·최근 파일이 모두 이 함수를 쓴다.
 pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     let temp = path.with_extension("tmp");
     {
         let mut file =
             fs::File::create(&temp).map_err(|e| format!("임시 파일을 만들 수 없습니다: {e}"))?;
-        file.write_all(text.as_bytes())
-            .map_err(|e| format!("세션을 쓸 수 없습니다: {e}"))?;
-        file.sync_all()
-            .map_err(|e| format!("세션을 비울 수 없습니다: {e}"))?;
+        let written = file
+            .write_all(text.as_bytes())
+            .and_then(|()| file.sync_all());
+        if let Err(e) = written {
+            drop(file);
+            let _ = fs::remove_file(&temp);
+            return Err(format!("파일을 쓸 수 없습니다: {e}"));
+        }
     }
-    let _ = fs::remove_file(path);
-    if let Err(e) = fs::rename(&temp, path) {
+    if let Err(e) = crate::textfile::replace_file(&temp, path) {
         let _ = fs::remove_file(&temp);
-        return Err(format!("세션 파일을 옮길 수 없습니다: {e}"));
+        return Err(format!("파일을 옮길 수 없습니다: {e}"));
     }
     Ok(())
 }
@@ -490,6 +499,23 @@ mod tests {
             .map(|t| json!({ "id": t, "buf": format!("buf_{t}.txt"), "hist": Value::Null }))
             .collect();
         json!({ "id": id, "tabs": tabs })
+    }
+
+    /// 대상이 **이미 있어도** 한 번에 바꿔치기하고 임시 파일을 남기지 않는다
+    /// (Windows의 `fs::rename`은 여기서 실패한다 — `textfile::replace_file`을 쓰는 이유).
+    #[test]
+    fn 쓰기는_대상이_있어도_제자리를_바꿔치기한다() {
+        let dir = std::env::temp_dir().join("inkwell-session-atomic-test");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.json");
+
+        write_atomic(&path, "first").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
+        write_atomic(&path, "second").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert!(!dir.join("session.tmp").exists());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -34,7 +34,6 @@ export const TINT_DOTS = {
 
 /** 형광펜 5색 (고정) — 원본 `kHlColors` 순서. */
 export const HIGHLIGHTS = ["#FFEB3B", "#9BF06A", "#FF8AD8", "#7FDBFF", "#FFB14D"] as const;
-export const HIGHLIGHT_TEXT = "#14171A";
 
 /** 현재 테마의 CSS 변수 값을 읽는다. */
 export function cssVar(name: string): string {

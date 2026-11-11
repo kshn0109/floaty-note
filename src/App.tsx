@@ -65,6 +65,7 @@ import {
   addReminder,
   cancelReminder,
   flattenText,
+  noSelectionText,
   onlyHiddenLeft,
   previewToast,
   reconcileReminderTabs,
@@ -249,7 +250,6 @@ export default function App() {
    * 기록에 저장·복원한다). 메모장도 창마다 따로 기억한다.
    */
   const [zoom, setZoom] = useState(ZOOM_DEFAULT);
-  /** 이 창이 활성인가 — 고정 중 흐려짐 판단에 쓴다. */
   const [maximized, setMaximized] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [hover, setHover] = useState(false);
@@ -302,7 +302,6 @@ export default function App() {
   const [query, setQuery] = useState<EditorQuery>(EMPTY_QUERY);
   /** 문서가 바뀔 때마다 1 오른다 — 찾기 결과를 다시 세는 시점(원본 `OnDocumentChangedForFind`). */
   const [docVersion, setDocVersion] = useState(0);
-  /** 붙여넣기를 쓸 수 있는가 — 메뉴를 열 때 클립보드를 비동기로 물어 채운다. */
   /** 형광펜 펜 모드. 문서가 아니라 UI 상태다(§7). 원본도 저장하지 않는다. */
   const [penOn, setPenOn] = useState(false);
 
@@ -368,6 +367,17 @@ export default function App() {
   /** 설정 모달이 열려 있는지 — 단축키 핸들러가 매번 다시 붙지 않게 ref로 본다. */
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
+  /**
+   * 대화상자(시안 D1)가 떠 있는지 — 설정과 **같은 이유**로 ref다.
+   *
+   * 대화상자도 모달이다: 떠 있는 동안 앱 단축키는 쉰다(Windows 11 메모장과 같다 —
+   * `저장하시겠습니까?`가 떠 있을 때 Ctrl+W는 듣지 않는다). `Dialog`는 캡처 단계에서
+   * Enter·Esc만 가로채므로 Ctrl+W·Ctrl+Shift+W가 그냥 지나가 `closeTab`이 `askSave`를
+   * 다시 불렀고, 그 바람에 기다리던 약속이 영원히 풀리지 않아 `창 닫기`·`모두 저장`이
+   * 멈췄다.
+   */
+  const dialogOpenRef = useRef(dialog !== null);
+  dialogOpenRef.current = dialog !== null;
   const opacityRef = useRef(opacity);
   opacityRef.current = opacity;
   const pinnedRef = useRef(pinned);
@@ -914,8 +924,7 @@ export default function App() {
     async (path: string): Promise<boolean> => {
       const tabs = tabsRef.current;
       const activeId = activeRef.current;
-      // 이미 열려 있는 같은 파일이면 그 탭으로 전환한다(메모장 11과 같다).
-      // 이미 열려 있는 같은 파일이면 그 탭으로 전환한다 — **숨은 탭(알림이 걸린 채
+      // 이미 열려 있는 같은 파일이면 그 탭으로 전환한다(메모장 11과 같다) — **숨은 탭(알림이 걸린 채
       // 닫힌 탭)이면 되살린다**. 숨은 채로 활성이 되면 탭 줄에 아무것도 없는 창이 된다.
       const already = tabs.find((tb) => tb.path !== null && samePath(tb.path, path));
       if (already) {
@@ -1115,6 +1124,13 @@ export default function App() {
           setDialog(null);
           resolve(answer);
         };
+        // 한 번에 하나만 뜨지만(위의 모달 규칙), **그래도** 앞의 질문이 남아 있으면
+        // 거기부터 `취소`로 끝낸다. 자리를 조용히 덮어 버리면 앞의 약속이 영원히
+        // 풀리지 않아 부르던 쪽(`창 닫기`·`모두 저장`)이 멈춘다.
+        // (`done`은 자기가 아직 그 자리에 있을 때만 듣는다 — 그래서 자리를 바꾸기
+        // **전에** 부른다. 그쪽이 `setDialog(null)`을 한 뒤 바로 아래에서 새 카드를
+        // 올리므로 React가 같은 차례에 한꺼번에 처리한다.)
+        answerRef.current?.("cancel");
         answerRef.current = done;
         setDialog({
           title: t("dlgTitleSaveChanges"),
@@ -1751,7 +1767,18 @@ export default function App() {
     if (!tab) return;
     const h = peekHost(tab.id) ?? hostOf(tab.id, tab.format);
     const picked = h.selectedText();
-    if (flattenText(picked) === "") return;
+    // 선택이 없으면 **말해 준다**(원본 `kStrRemindNoSelection`). 전에는 조용히 아무
+    // 일도 하지 않아서 Ctrl+Shift+R이 고장난 것처럼 보였다. 메모장도 할 수 없는 일은
+    // 한 줄짜리 확인 카드로 말한다 — 파일 오류 카드(`showFileError`)와 같은 모양이다.
+    if (flattenText(picked) === "") {
+      setDialog({
+        message: noSelectionText(),
+        buttons: [
+          { label: t("dlgBtnOk"), primary: true, cancel: true, onClick: () => setDialog(null) },
+        ],
+      });
+      return;
+    }
     const range = h.selectionRange();
     setOpenMenu(null);
     setOpacityOpen(false);
@@ -1964,6 +1991,11 @@ export default function App() {
           setHighlight(act.value);
           highlightCommand(HIGHLIGHTS[act.value] ?? HIGHLIGHTS[0]);
           break;
+        case "tab":
+          // 「N ▾」 탭 목록에서 고른 탭(시안 T1). 알약을 누른 것과 **같은 길**이고,
+          // 탭 줄이 그 알약까지 넘어가는 일은 `TitleBar`의 `scrollToPill` 효과가 한다.
+          setActiveId(act.id);
+          break;
         default:
           break;
       }
@@ -2047,7 +2079,7 @@ export default function App() {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey || e.altKey || e.deltaY === 0) return;
       e.preventDefault();
-      if (settingsOpenRef.current) return;
+      if (settingsOpenRef.current || dialogOpenRef.current) return;
       const inEditor = e.target instanceof Node && editorRef.current?.contains(e.target) === true;
       if (!inEditor) return;
       applyZoom(e.deltaY < 0 ? "in" : "out");
@@ -2092,25 +2124,40 @@ export default function App() {
        * 확대/축소와 같은 이유로 `defaultPrevented` 검사보다 **먼저** 본다 — 편집기가
        * 먼저 먹어서 `preventDefault`를 걸어 버리면 Ctrl+Z 때와 같은 비대칭 버그가 난다.
        */
+      const modalOpen = settingsOpenRef.current || dialogOpenRef.current;
       if (isReloadKey(e)) {
         e.preventDefault();
-        if (!settingsOpenRef.current && isTimeDateKey(e)) {
+        // Ctrl+Shift+R — 알림 예약. 새로 고침 키와 겹쳐서 **여기서** 받아야 한다(전에는
+        // 아래 단축키 표까지 내려가지 못하고 이 자리에서 삼켜져 아무 일도 없었다).
+        // 선택한 글이 있을 때만 연다 — 없으면 조용히 넘어간다(사용자 결정 2026-11-11,
+        // 우클릭 메뉴 행이 그때 회색인 것과 같은 규칙).
+        if (e.ctrlKey && e.shiftKey && e.code === "KeyR") {
+          const inFindNow =
+            document.activeElement instanceof Element &&
+            document.activeElement.closest(".find-card") !== null;
+          if (!modalOpen && !inFindNow && flattenText(host.selectedText()) !== "") {
+            commands.remind?.();
+          }
+          return;
+        }
+        if (!modalOpen && isTimeDateKey(e)) {
           void timeDateStamp().then((text) => {
             runEditor(() => host.exec({ t: "insertText", text }));
           });
         }
         return;
       }
-      const zoomKey = settingsOpenRef.current ? null : matchZoomKey(e);
+      const zoomKey = modalOpen ? null : matchZoomKey(e);
       if (zoomKey !== null) {
         e.preventDefault();
         applyZoom(zoomKey);
         return;
       }
       if (e.defaultPrevented && !escFromEditor) return;
-      // 설정 화면은 **모달**이다 — 열려 있는 동안 앱 단축키는 쉰다(Ctrl+W로 뒤에 있는
-      // 탭이 닫히면 설정만 떠 있는 상태가 된다). Esc·Tab·화살표는 설정 카드가 받는다.
-      if (settingsOpenRef.current) return;
+      // 설정 화면과 대화상자는 **모달**이다 — 떠 있는 동안 앱 단축키는 쉰다(Ctrl+W로
+      // 뒤에 있는 탭이 닫히면 설정만 떠 있는 상태가 되고, 저장 확인 카드에서는 묻던
+      // 질문이 영원히 풀리지 않는다). Enter·Esc·Tab·화살표는 그 카드들이 받는다.
+      if (modalOpen) return;
       // Alt+Space: 시스템 메뉴. 위 줄 바로 아래, 창 왼쪽에서 (Windows와 같은 자리).
       if (e.altKey && !e.ctrlKey && !e.shiftKey && e.code === "Space") {
         e.preventDefault();
@@ -2218,15 +2265,6 @@ export default function App() {
           if (inFind) return;
           e.preventDefault();
           commands.bullet?.();
-        } else if (e.code === "KeyR") {
-          // Ctrl+Shift+R — 알림 예약(원본과 같은 단축키). 선택이 없으면 창이 열리지
-          // 않는다(`openRemindPick`) — 메뉴 행이 회색인 것과 같은 규칙이다.
-          //
-          // 찾기 칸에 있을 때도 **먼저 막는다**: Ctrl+Shift+R은 Chromium의 `강력
-          // 새로 고침`이라 그냥 돌려보내면 개발 중에 웹뷰가 통째로 다시 뜬다.
-          e.preventDefault();
-          if (inFind) return;
-          commands.remind?.();
         } else if (e.code === "KeyL") {
           if (inFind) return;
           e.preventDefault();
@@ -2974,6 +3012,7 @@ export default function App() {
             onReorder={reorderTab}
             onToggleNoteList={() => setNoteList((on) => !on)}
             onSystemMenu={openSystemMenu}
+            onOpenMenu={openAt}
             zoneRef={zoneRef}
             onTear={beginTear}
             tearing={tearing}

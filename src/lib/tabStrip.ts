@@ -95,6 +95,22 @@ export function pageScroll(
 }
 
 /**
+ * 탭 줄 위의 **마우스 휠** 방향 (사용자 확정 2026-11-10).
+ *
+ * 휠은 `◀ ▶` 버튼과 **정확히 같은 기능**이다: 한 칸 = 화살표 한 번 클릭 → `pageScroll`.
+ * 그래서 여기서는 방향만 고르고 자리 계산은 `pageScroll` 하나가 한다(길이 둘이면
+ * 둘이 어긋난다). **활성 탭은 바뀌지 않는다** — 줄을 좌우로 넘겨 보는 것뿐이다.
+ *
+ * 아래/오른쪽 = `+1`, 위/왼쪽 = `-1`. 가로 휠(`deltaX`)도 받고, 터치패드처럼 두 축이
+ * 같이 올 때는 **큰 쪽**을 따른다. 0이면 `0`(아무 일도 하지 않는다).
+ */
+export function wheelDir(deltaX: number, deltaY: number): 1 | -1 | 0 {
+  const d = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+  if (d === 0) return 0;
+  return d > 0 ? 1 : -1;
+}
+
+/**
  * 활성 알약을 보이게 하는 `scrollLeft`. 이미 온전히 보이면 그대로 둔다.
  * (메모 목록·막대나 Ctrl+Tab으로 **안 보이는 탭을 고를 수 있어야** 하므로 필요하다.)
  */

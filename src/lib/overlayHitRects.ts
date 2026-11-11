@@ -22,7 +22,15 @@ interface Rect {
   h: number;
 }
 
-function push(out: Rect[], r: DOMRect, dpr: number, clip: DOMRect | null): void {
+/** `DOMRect`에서 이 파일이 보는 네 변만(시험이 가짜 사각형을 만들 수 있게). */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function push(out: Rect[], r: Box, dpr: number, clip: Box | null): void {
   let { left, top, right, bottom } = r;
   if (clip) {
     left = Math.max(left, clip.left);
@@ -57,13 +65,40 @@ function textRects(editor: HTMLElement, out: Rect[], dpr: number): void {
   }
 }
 
+/**
+ * 스크롤 막대 띠 계산. **지금은 쓰지 않는다** — 오버레이에서 막대를 히트 영역에 넣던
+ * 변경을 사용자 요청으로 되돌렸다(2026-11-10). 다시 쓸 때를 위해 계산과 시험만 남긴다.
+ * 클릭 통과 설계를 깨지 않는다: 띠는 스크롤 막대가 **실제로 있을
+ * 때만**(`scrollHeight > clientHeight`) 생기고 폭이 그 막대의 두께(여기서는 14px)
+ * 뿐이라, 오버레이의 "빈 곳은 뒤 창으로"는 그대로다.
+ *
+ *   `gutter` = `offsetWidth - clientWidth` — 막대가 차지한 폭(막대가 없으면 0).
+ *   세로 막대는 LTR에서 오른쪽 끝에 붙으므로 그 폭만큼 잘라 낸다.
+ *
+ * 순수한 계산이다(시험: `scripts/overlayHit.test.ts`).
+ */
+export function scrollbarBand(
+  box: Box,
+  gutter: number,
+  scrollHeight: number,
+  clientHeight: number
+): Box | null {
+  if (!(gutter > 0)) return null;
+  if (!(scrollHeight > clientHeight)) return null;
+  const left = box.right - gutter;
+  if (left <= box.left) return null;
+  return { left, top: box.top, right: box.right, bottom: box.bottom };
+}
+
 export function collectHitRects(editor: HTMLElement | null): Rect[] {
   const dpr = window.devicePixelRatio || 1;
   const out: Rect[] = [];
   for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-hit]"))) {
     push(out, el.getBoundingClientRect(), dpr, null);
   }
-  if (editor) textRects(editor, out, dpr);
+  if (editor) {
+    textRects(editor, out, dpr);
+  }
   return out;
 }
 

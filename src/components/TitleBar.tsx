@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { t } from "../lib/i18n";
+import { t, tf } from "../lib/i18n";
+import { tabListMenu, type Menu } from "../lib/menus";
 import { TINT_DOTS } from "../lib/palette";
-import { clippedPills, pageScroll, scrollToPill, type ListMode, type Span } from "../lib/tabStrip";
+import {
+  clippedPills,
+  pageScroll,
+  scrollToPill,
+  wheelDir,
+  type ListMode,
+  type Span,
+} from "../lib/tabStrip";
 import { tabLabel, type Tab } from "../lib/tabs";
+import type { Placement } from "./Popup";
 import { useTabDrag, type TearInfo } from "./useTabDrag";
 
 /**
@@ -63,6 +72,8 @@ interface Props {
   onToggleNoteList: () => void;
   /** 제목 줄 우클릭 → 시스템 메뉴 (원본과 같다). */
   onSystemMenu: (x: number, y: number) => void;
+  /** 「N ▾」가 여는 탭 목록 — `App`의 `openAt`과 같은 길이다(시안 T1). */
+  onOpenMenu: (menu: Menu, el: HTMLElement, placement?: Placement) => void;
   /** 알약 줄 요소 — `App`이 놓을 자리(드롭 존)를 재는 데 쓴다. */
   zoneRef: RefObject<HTMLDivElement | null>;
   /** 포인터가 이 줄을 벗어났다 — 여기서부터 `App`이 떼어내기를 몰고 간다. */
@@ -156,6 +167,7 @@ export default function TitleBar({
   onReorder,
   onToggleNoteList,
   onSystemMenu,
+  onOpenMenu,
   zoneRef,
   onTear,
   tearing,
@@ -173,6 +185,9 @@ export default function TitleBar({
     onTear,
     tearing,
   });
+  // 휠 처리기는 **한 번만** 달린다(아래) — 그 안에서 최신 끌기 상태를 보려고 ref에 둔다.
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
 
   /** 줄여도 모자라는가(= `◀ ▶`) + 어느 알약이 잘렸는가. */
   const measure = useCallback(() => {
@@ -243,18 +258,48 @@ export default function TitleBar({
   }, [activeId, stripRef, tabs]);
 
   /** 화살표 — 알약 경계에 딱 맞게 멈춘다(잘린 알약이 남지 않게). */
-  const page = (dir: 1 | -1) => {
+  const page = useCallback(
+    (dir: 1 | -1) => {
+      const strip = stripRef.current;
+      if (!strip) return;
+      const left = pageScroll(
+        pillSpans(strip),
+        strip.clientWidth,
+        strip.scrollLeft,
+        dir,
+        strip.scrollWidth - strip.clientWidth
+      );
+      strip.scrollTo({ left, behavior: "smooth" });
+    },
+    [stripRef]
+  );
+
+  /**
+   * 탭 줄 위의 **마우스 휠 = ◀ ▶ 한 번 클릭**(사용자 확정 2026-11-10). 한 칸에 알약
+   * 하나씩, 경계에 맞춰 넘어가고 **활성 탭은 바뀌지 않는다** — 줄을 좌우로 넘겨
+   * 보는 것뿐이다. 넘치지 않으면 아무 일도 없고(브라우저 기본값도 그대로 간다),
+   * 끌기 중에는 끼어들지 않는다(놓을 자리가 포인터 밑에서 바뀌면 안 된다).
+   *
+   * React의 `onWheel`을 쓰지 않는 이유: React는 `wheel`을 뿌리에 **passive**로 달아서
+   * `preventDefault()`가 먹지 않는다(브라우저가 콘솔에 경고를 뱉는다). 가로 휠을 막지
+   * 않으면 WebView가 창 전체를 가로로 밀 수 있으므로 직접 `{ passive: false }`로 단다.
+   */
+  useEffect(() => {
     const strip = stripRef.current;
-    if (!strip) return;
-    const left = pageScroll(
-      pillSpans(strip),
-      strip.clientWidth,
-      strip.scrollLeft,
-      dir,
-      strip.scrollWidth - strip.clientWidth
-    );
-    strip.scrollTo({ left, behavior: "smooth" });
-  };
+    if (!strip) return undefined;
+    const onWheel = (e: WheelEvent) => {
+      if (dragRef.current.active()) return;
+      // Ctrl+휠은 본문 확대/축소다(`App`의 창 전역 처리) — 여기서 먹지 않는다.
+      if (e.ctrlKey) return;
+      if (strip.scrollWidth <= strip.clientWidth + 1) return;
+      const dir = wheelDir(e.deltaX, e.deltaY);
+      if (dir === 0) return;
+      e.preventDefault();
+      page(dir);
+    };
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onWheel);
+  }, [page, stripRef]);
 
   return (
     <div
@@ -344,6 +389,39 @@ export default function TitleBar({
               onClick={() => page(1)}
             >
               ▶
+            </button>
+          )}
+
+          {/* 「N ▾」 — 탭이 줄에 다 안 들어갈 때만, 즉 `◀ ▶`가 보일 때만 있다(시안 T1).
+              N은 보이는 탭 전체 수다. 다 들어가면 목록을 볼 까닭이 없으므로 버튼이 없다.
+              자리는 ▶ 오른쪽·`+` 왼쪽이고, 34px은 `.tab-strip`이 양보하므로(flex)
+              넘침 판정·끌기 영역·테이프 자리가 저절로 그만큼 좁아진다. */}
+          {overflow && (
+            <button
+              className="tab-list-btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-label={tf("tabListFmt", tabs.length)}
+              title={tf("tabListFmt", tabs.length)}
+              data-hit
+              onClick={(e) =>
+                onOpenMenu(
+                  tabListMenu(
+                    tabs.map((tab) => ({
+                      id: tab.id,
+                      label: tabLabel(tab),
+                      tint: tab.tint,
+                      dirty: tab.dirty,
+                    })),
+                    activeId
+                  ),
+                  e.currentTarget,
+                  // 위 줄은 창 **맨 위**에 있다 — 도구 줄과 달리 아래로 열린다.
+                  "below"
+                )
+              }
+            >
+              {tabs.length} ▾
             </button>
           )}
 
