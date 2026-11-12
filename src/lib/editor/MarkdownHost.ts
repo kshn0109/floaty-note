@@ -447,7 +447,15 @@ export class MarkdownHost implements DocHost {
   }
 
   destroy(): void {
+    // 뷰를 `mount:`로 만들었으므로(위 `mount()`) `prosemirror-view`의 `destroy()`는
+    // 그 노드를 **떼지 않고 안만 비운다** — 우리가 직접 떼야 한다. 떼지 않으면
+    // `.editor` 안에 class 없는 빈 div가 쌓이고, 일반 텍스트 모드의 flex 규칙에서
+    // 그 div가 CodeMirror와 폭을 나눠 가져 글이 가운데로 몰렸다(사용자 보고:
+    // .txt를 저장하고 다시 열면 왼쪽에 여백). `view`를 지운 뒤에는 `unmount()`가
+    // 아무것도 못 떼므로 여기서 치우는 것이 마지막 기회다.
+    const dom = this.view?.dom;
     this.view?.destroy();
+    dom?.remove();
     this.view = null;
     this.listeners.clear();
   }

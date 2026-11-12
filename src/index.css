@@ -653,7 +653,9 @@ button {
   display: flex;
 }
 
-.editor[data-engine="plain"] > * {
+/* `> *`가 아니라 **CodeMirror만** 늘린다 — `> *`면 어쩌다 남은 다른 자식(예: 떼이지
+   못한 ProseMirror 노드)도 폭을 나눠 가져 글이 가운데로 몰린다. */
+.editor[data-engine="plain"] > .cm-editor {
   flex-grow: 1;
   min-width: 0;
 }
@@ -2124,6 +2126,13 @@ button {
   font-size: 11px;
   color: var(--dim);
   overflow-wrap: anywhere;
+}
+
+/* 확인 카드의 dim 둘째 줄 — 시안 `DiscardReminder` ②의 12px/1.6 · 위 6. */
+.dialog[data-kind="confirm"] .dialog-detail {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .dialog-buttons {

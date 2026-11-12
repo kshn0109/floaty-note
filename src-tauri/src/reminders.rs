@@ -366,18 +366,56 @@ impl Reminders {
     pub fn take_reveal(&self) -> Option<RevealRequest> {
         lock(self).reveal.take()
     }
+
+    /// 아직 **배달되지 않은** reveal이 가리키는 탭. `reminder_open`이 카드를 치우기 전에
+    /// 여기에 넣어 두므로, 카드가 사라진 뒤에도 그 탭은 `held`에 남는다 — 아래 `held_of`의
+    /// 셋째 조각이다.
+    pub fn reveal_tab(&self) -> Option<String> {
+        lock(self).reveal.as_ref().map(|r| r.tab_uid.clone())
+    }
+}
+
+/// **아직 치우면 안 되는 탭**의 세 조각을 합친다 — 순수 함수라 시험할 수 있다.
+///
+///   1. 대기 중인 알림이 가리키는 탭
+///   2. 화면에 떠 있는 카드가 가리키는 탭
+///   3. **아직 배달되지 않은 reveal이 가리키는 탭**
+///
+/// 3이 없으면 이런 일이 난다(점검 2026-11-12): 카드를 누르면 `reminder_open`이
+/// `put_reveal` → 창 복원 → 카드 `destroy` 순으로 가고, `destroy`가 부르는 방송에는
+/// 1도 2도 없다. 방금 복원된 창은 mount 때 그 상태를 먼저 받아 **되살릴 숨은 탭을
+/// 치워 버린다**(그리고 세션 쓰기의 `gc_buffers`가 버퍼 파일까지 지운다).
+///
+/// 빈 `uid`는 뜻이 없으므로 빼고, 중복은 한 번만 넣는다.
+pub fn held_of(
+    pending: &[Reminder],
+    toast_tabs: Vec<String>,
+    reveal_tab: Option<String>,
+) -> Vec<String> {
+    let mut held: Vec<String> = Vec::new();
+    let mut push = |uid: String| {
+        if uid.is_empty() || held.iter().any(|h| h == &uid) {
+            return;
+        }
+        held.push(uid);
+    };
+    for r in pending {
+        push(r.tab_uid.clone());
+    }
+    for uid in toast_tabs {
+        push(uid);
+    }
+    if let Some(uid) = reveal_tab {
+        push(uid);
+    }
+    held
 }
 
 /// 지금 상태 + **아직 치우면 안 되는 탭**. 떠 있는 카드가 가리키는 탭도 함께 센다.
 pub fn state_of(app: &AppHandle) -> ReminderStateDto {
-    let pending = app.state::<Reminders>().pending();
-    let mut held: Vec<String> = pending.iter().map(|r| r.tab_uid.clone()).collect();
-    for uid in crate::toast::held_tabs(app) {
-        if !held.iter().any(|h| h == &uid) {
-            held.push(uid);
-        }
-    }
-    held.retain(|u| !u.is_empty());
+    let state = app.state::<Reminders>();
+    let pending = state.pending();
+    let held = held_of(&pending, crate::toast::held_tabs(app), state.reveal_tab());
     ReminderStateDto { pending, held }
 }
 
@@ -531,6 +569,11 @@ pub fn reminder_state(app: AppHandle) -> ReminderStateDto {
 }
 
 /// 창이 뜨기 전에 눌린 토스트가 남긴 요청을 꺼내 간다.
+///
+/// **여기서 `broadcast`를 부르지 말 것.** 꺼내 가면 `held_of`의 셋째 조각이 사라지는데,
+/// 프론트는 아직 숨김을 풀지 못했을 수 있다 — 그 사이에 `held=[]`가 도착하면
+/// `reconcileReminderTabs`가 되살릴 탭을 치운다. 그 탭이 다시 "치워도 되는 탭"이 되는
+/// 순간은 **다음 방송**(예약·취소·발생·카드 닫힘)이고, 그때는 프론트가 이미 숨김을 풀었다.
 #[tauri::command]
 pub fn reminder_take_reveal(state: tauri::State<'_, Reminders>) -> Option<RevealRequest> {
     state.take_reveal()
@@ -598,6 +641,24 @@ mod tests {
         let cut = flatten(&long, 160);
         assert_eq!(cut.chars().count(), 161);
         assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn 배달_안_된_reveal도_탭을_붙든다() {
+        // 카드도 예약도 없다 — reveal만 남은 순간(`reminder_open`이 카드를 부순 직후)이다.
+        assert_eq!(held_of(&[], vec![], Some("tab1".into())), vec!["tab1"]);
+        // 세 조각이 겹쳐도 한 번만, 넣은 순서대로.
+        let pending = vec![r("1-1", 1_800_000_000_000, "하나")];
+        assert_eq!(
+            held_of(&pending, vec!["tab1".into(), "tab2".into()], Some("tab2".into())),
+            vec!["tab1", "tab2"]
+        );
+        // 빈 uid는 뜻이 없다(제목 없는 탭이 아니라 "탭 없음"이다) — 어느 조각에서 와도 뺀다.
+        let mut anon = r("1-2", 1_800_000_000_000, "둘");
+        anon.tab_uid = String::new();
+        assert!(held_of(&[anon], vec![String::new()], Some(String::new())).is_empty());
+        // reveal이 없으면 예전과 똑같다.
+        assert_eq!(held_of(&pending, vec![], None), vec!["tab1"]);
     }
 
     #[test]

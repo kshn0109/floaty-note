@@ -176,6 +176,10 @@ New-Asset 'Wide310x150Logo.png' 310 150 135
 New-Asset 'SplashScreen.png'    620 300 180
 foreach ($s in 16, 24, 32, 48, 256) {
     New-Asset "Square44x44Logo.targetsize-${s}_altform-unplated.png" $s $s $s
+    # 밝은 작업 표시줄(light theme)도 판(plate) 없이 쓰도록 같은 그림을 lightunplated 로 복사한다.
+    Copy-Item (Join-Path $AssetsDir "Square44x44Logo.targetsize-${s}_altform-unplated.png") `
+              (Join-Path $AssetsDir "Square44x44Logo.targetsize-${s}_altform-lightunplated.png") -Force
+    Write-Host "       복사  Square44x44Logo.targetsize-${s}_altform-lightunplated.png"
 }
 
 # ---------------------------------------------------------------- 4. 매니페스트
@@ -202,11 +206,31 @@ Copy-Item $ExePath (Join-Path $LayoutDir 'Floaty Note.exe') -Force
 Copy-Item $AssetsDir (Join-Path $LayoutDir 'Assets') -Recurse -Force
 Write-TextNoBom (Join-Path $LayoutDir 'AppxManifest.xml') $manifest
 
-# ---------------------------------------------------------------- 6. pack
+# ---------------------------------------------------------------- 6. SDK 도구 찾기
 $makeappx = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe' -ErrorAction SilentlyContinue |
     Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $makeappx) { Fail 'makeappx.exe 를 찾지 못했다 (Windows SDK 필요).' }
 
+$makepri = Join-Path (Split-Path -Parent $makeappx.FullName) 'makepri.exe'
+if (-not (Test-Path $makepri)) { Fail "makepri.exe 를 찾지 못했다: $makepri (Windows SDK 필요)." }
+
+# ---------------------------------------------------------------- 7. resources.pri
+# resources.pri 가 없으면 Windows 가 targetsize/altform-unplated 같은 한정자(qualifier) 변형을
+# 찾지 못해 기본 Square44x44Logo.png 를 강조색 판(plate) 위에 그린다 → 작업 표시줄 아이콘이 보라색 사각형.
+Step 'resources.pri 생성'
+$priConfig = Join-Path $OutRoot 'priconfig.xml'   # 레이아웃 밖에 둔다 — 패키지에 들어가면 안 된다.
+$priFile   = Join-Path $LayoutDir 'resources.pri'
+$priLangs  = ($languages -join '_')               # 매니페스트 <Resources> 순서대로, 첫 번째가 기본값
+
+& $makepri createconfig /cf $priConfig /dq $priLangs /o
+if ($LASTEXITCODE -ne 0) { Fail "makepri createconfig 실패 (exit $LASTEXITCODE)" }
+
+& $makepri new /pr $LayoutDir /cf $priConfig /mn (Join-Path $LayoutDir 'AppxManifest.xml') /of $priFile /o
+if ($LASTEXITCODE -ne 0) { Fail "makepri new 실패 (exit $LASTEXITCODE)" }
+if (-not (Test-Path $priFile)) { Fail "resources.pri 가 만들어지지 않았다: $priFile" }
+Write-Host ("       만듦  resources.pri ({0:N0} bytes)" -f (Get-Item $priFile).Length)
+
+# ---------------------------------------------------------------- 8. pack
 $outFile = Join-Path $OutRoot "FloatyNote_${version}_x64.msix"
 Step "pack → $outFile"
 & $makeappx.FullName pack /o /d $LayoutDir /p $outFile

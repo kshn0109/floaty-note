@@ -277,6 +277,13 @@ const STRINGS = {
   sysClose: ["Close", "닫기"],
   dlgTitleSaveChanges: ["Save changes", "변경 내용 저장"],
   dlgTitleError: ["Can't open the file", "파일을 열 수 없습니다"],
+  // --- 알림이 걸린 탭을 `저장 안 함`으로 닫을 때의 두 번째 확인(시안 `DiscardReminder` ②) ---
+  dlgTitleDiscardReminder: ["Scheduled reminder", "예약된 알림"],
+  dlgDiscardReminder: [
+    "This tab has a scheduled reminder. If you don't save, the reminder will be removed.",
+    "이 탭에 예약된 알림이 있습니다. 저장하지 않으면 예약한 알림이 사라집니다.",
+  ],
+  dlgBtnDiscardReminder: ["Remove reminder and close", "알림도 지우고 닫기"],
   dlgBtnSave: ["Save", "저장"],
   dlgBtnDontSave: ["Don't save", "저장 안 함"],
   dlgBtnCancel: ["Cancel", "취소"],

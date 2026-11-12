@@ -17,3 +17,6 @@ docs/
 
 # MSIX generated assets
 src-tauri/msix/Assets/
+
+# 내부 운영 노트
+release-ops/

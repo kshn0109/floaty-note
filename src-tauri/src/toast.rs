@@ -464,10 +464,18 @@ pub async fn reminder_open(app: AppHandle, window: Window) {
         .filter(|r| !r.tab_uid.is_empty())
         .and_then(|r| crate::session::window_with_tab(&app, &r.tab_uid));
 
-    if let Some(r) = req.clone() {
-        app.state::<Reminders>().put_reveal(r);
+    // 살아 있는 창이 있으면 이벤트만으로 닿는다. 그때 `put_reveal`까지 하면 아무도
+    // 가져가지 않은 요청이 남아 — 다음에 새로 뜨는 창이 낡은 범위를 선택하고, 그 탭이
+    // `held`에 영원히 붙든다. 그래서 **창을 새로 만들 때만** 맡겨 둔다.
+    let live = owner
+        .and_then(|l| app.get_webview_window(&l))
+        .or_else(|| winmgr::target_window(&app));
+    if live.is_none() {
+        if let Some(r) = req.clone() {
+            app.state::<Reminders>().put_reveal(r);
+        }
     }
-    let win = match owner.and_then(|l| app.get_webview_window(&l)) {
+    let win = match live {
         Some(win) => Some(win),
         None => restore_window(&app).await,
     };

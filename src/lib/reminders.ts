@@ -126,6 +126,53 @@ export function flattenText(input: string, cap = REMINDER_TEXT_MAX): string {
   return out;
 }
 
+/** 알림 글로 본문을 찾을 때 쓰는 앞부분의 길이 상한(원본과 같은 40자). */
+const NEEDLE_MAX = 40;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 눌러 둔 알림 글(`flattenText`의 결과)로 **원문**에서 그 자리를 찾는다 — 토스트를 누를 때
+ * "글이 움직였을 뿐"인 흔한 경우를 되살리는 **한 자리**.
+ *
+ * 그냥 `indexOf`로는 안 된다: 저장된 글은 줄바꿈·탭·연속 공백이 **공백 하나로 눌린** 것이라
+ * 여러 줄 선택이면 원문에 그런 문자열이 아예 없다(점검 2026-11-12에서 잡은 버그 — 카드를
+ * 눌러도 아무 데도 선택되지 않았다). 그래서 공백으로 쪼갠 조각을 `\s+`로 이어 찾는다.
+ *
+ * 규칙:
+ *   * `…`(상한에서 잘린 표시) 뒤는 버린다 — 잘린 마지막 조각은 **앞부분으로** 맞는다.
+ *   * 앞 40자까지만 쓴다(원본과 같다. 뒤가 고쳐졌어도 앞이 남아 있으면 찾는다).
+ *     조각 가운데서 자르지 않으려고 **조각 단위**로 센다.
+ *   * 못 찾으면 `null` — 부르는 쪽은 **아무 데도 선택하지 않는다**(엉뚱한 자리를 선택해
+ *     주는 것이 가장 나쁜 답이다).
+ */
+export function findFlattened(text: string, needle: string): { from: number; to: number } | null {
+  let n = needle;
+  const cut = n.indexOf("…");
+  if (cut >= 0) n = n.slice(0, cut);
+  const all = n.split(/\s+/).filter((p) => p !== "");
+  if (all.length === 0) return null;
+  const parts: string[] = [];
+  let len = 0;
+  for (const p of all) {
+    // 첫 조각은 길어도 넣는다 — 공백이 없는 글(한국어·일본어)은 통째로 한 조각이다.
+    if (parts.length > 0 && len + 1 + p.length > NEEDLE_MAX) break;
+    len += (parts.length > 0 ? 1 : 0) + p.length;
+    parts.push(p);
+  }
+  // 조각이 하나뿐인데 상한을 넘으면(공백이 없는 글) 거기서 앞 40자를 쓴다 — 원본이
+  // `needle.slice(0, 40)`으로 하던 그 일이다. 코드 포인트로 세어 서러게이트를 쪼개지 않는다.
+  if (parts.length === 1) {
+    const cps = Array.from(parts[0]);
+    if (cps.length > NEEDLE_MAX) parts[0] = cps.slice(0, NEEDLE_MAX).join("");
+  }
+  const m = new RegExp(parts.map(escapeRegExp).join("\\s+")).exec(text);
+  if (m === null) return null;
+  return { from: m.index, to: m.index + m[0].length };
+}
+
 /**
  * `2026-11-05 15:30` — 숫자만 쓰는 **두 언어에서 같은 토큰**(상태 글자의 `UTF-8`·`LF`와
  * 같은 규칙, 원본 `ReminderMomentText`). 사용자의 **지역 시각**이다.
@@ -172,6 +219,16 @@ export function reminderStatusText(pending: readonly Reminder[]): string {
   return pending.length > 1 ? `${head} (+${pending.length - 1})` : head;
 }
 
+/**
+ * 알림이 걸린 탭을 버리기 전 두 번째 확인 카드의 dim 둘째 줄 — `2026-11-05 15:30 · "회의"`
+ * (승인된 시안 `DiscardReminder.dc.html` ②). 시각은 예약 상태 글자·토스트와 **같은**
+ * `momentText`이고, 가운뎃점 구분은 예약 목록 줄과 같다. 글은 알림에 저장된 발췌다
+ * (`flattenText`로 이미 한 줄로 눌려 있다).
+ */
+export function reminderDiscardDetail(r: Pick<Reminder, "due" | "text">): string {
+  return `${momentText(r.due)} · "${r.text}"`;
+}
+
 /** 놓친 알림의 본문 앞에 붙는 dim 조각 — `(놓침 2026-11-05 15:30)`. */
 export function missedPrefix(ms: number): string {
   return tf("toastMissedPrefixFmt", momentText(ms));
@@ -194,16 +251,22 @@ export function noSelectionText(): string {
  *     보이는 탭은 사용자가 보고 있는 문서다.
  *
  * 돌려주는 `dropped`는 **편집기를 버려야 하는 탭 id**다(`dropHost`).
+ *
+ * `dropHidden`이 `false`면 숨은 탭을 **하나도 치우지 않는다**(`Tab.reminder`만 맞춘다).
+ * 창이 막 뜬 동안 쓰는 길이다: 카드 클릭으로 복원된 창은 `reminder_take_reveal`의 답을
+ * 받기 전까지 "이 숨은 탭을 되살려야 하는가"를 모르고, 그 사이에 도착한 `held=[]`를
+ * 믿으면 **되살릴 탭을 치워 버린다**(점검 2026-11-12). 모를 때는 지키는 쪽이다.
  */
 export function reconcileReminderTabs(
   tabs: readonly Tab[],
-  state: ReminderState
+  state: ReminderState,
+  dropHidden = true
 ): { tabs: Tab[]; dropped: number[] } {
   const held = new Set(state.held);
   const dropped: number[] = [];
   const next: Tab[] = [];
   for (const tab of tabs) {
-    if (tab.hidden && !held.has(tab.uid)) {
+    if (dropHidden && tab.hidden && !held.has(tab.uid)) {
       dropped.push(tab.id);
       continue;
     }

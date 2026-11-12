@@ -27,6 +27,10 @@ export default function Editor({ editorRef, host, onChange, onContextMenu }: Pro
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return undefined;
+    // 이 div의 자식은 **호스트만** 넣는다(아래 JSX에 자식이 없다 — React가 건드리지
+    // 않는다). 그래서 붙이기 전에 비워 두는 것이 안전하고, 이전 탭의 잔해가 남아
+    // 있더라도 폭을 나눠 가져 글이 밀리는 일이 없다.
+    el.replaceChildren();
     host.mount(el);
     const off = host.onChange(onChange);
     onChange("doc");

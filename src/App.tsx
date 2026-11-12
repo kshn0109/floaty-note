@@ -26,7 +26,7 @@ import StatusText, { type DocStats } from "./components/StatusText";
 import TableGrid from "./components/TableGrid";
 import TitleBar from "./components/TitleBar";
 import ToolDock from "./components/ToolDock";
-import { tabsToPrompt, windowCloseMode } from "./lib/closing";
+import { discardReminderToConfirm, tabsToPrompt, windowCloseMode } from "./lib/closing";
 import type { CommandTable } from "./lib/commands";
 import { isDockMenuKey, statusCollides, type FitRect } from "./lib/dockFit";
 import type {
@@ -64,11 +64,13 @@ import { sendHitRects, setOverlay as setOverlayNative } from "./lib/overlayHitRe
 import {
   addReminder,
   cancelReminder,
+  findFlattened,
   flattenText,
   noSelectionText,
   onlyHiddenLeft,
   previewToast,
   reconcileReminderTabs,
+  reminderDiscardDetail,
   reminderState as fetchReminderState,
   reminderStatusText,
   REMINDERS_EVENT,
@@ -340,6 +342,12 @@ export default function App() {
    * 상태로 탭을 버리면 세션에 있던 알림 탭이 시작할 때마다 사라진다).
    */
   const [reminders, setReminders] = useState<ReminderState | null>(null);
+  /**
+   * `reminder_take_reveal`에 물어봤는가. 거짓인 동안은 **숨은 탭을 치우지도, 빈 탭을
+   * 세우지도 않는다**: 카드 클릭으로 막 복원된 창은 되살릴 탭이 무엇인지 아직 모르고,
+   * 그 사이에 도착한 `held=[]`를 믿으면 그 탭을 치운다(점검 2026-11-12).
+   */
+  const [revealChecked, setRevealChecked] = useState(false);
 
   // --- 다중 창 (§5) ---
   /** 이 창이 무엇인가 — Rust `window_boot`이 대답한다. `null`이면 아직 묻는 중. */
@@ -398,6 +406,13 @@ export default function App() {
    */
   const openMenuRef = useRef(openMenu);
   openMenuRef.current = openMenu;
+  /**
+   * 지금 알고 있는 알림 상태 — **대화상자를 기다리는 사이에** 보기 때문에 ref다
+   * (닫기 흐름의 `tabsRef`와 같은 이유). 알림이 걸린 탭을 버리기 전 두 번째 확인이
+   * 적을 시각·글을 여기서 찾는다.
+   */
+  const remindersRef = useRef(reminders);
+  remindersRef.current = reminders;
 
   /** 이 창을 세션에서 가리키는 이름. 복원하면 저장돼 있던 이름을 물려받는다. */
   const windowIdRef = useRef<string>(newTabUid());
@@ -929,11 +944,17 @@ export default function App() {
       const already = tabs.find((tb) => tb.path !== null && samePath(tb.path, path));
       if (already) {
         if (already.hidden) {
-          setTabs((old) =>
-            old.map((tb) => (tb.id === already.id ? { ...tb, hidden: false } : tb))
+          // 목록은 **지금의** `tabsRef`에서 만들고 `tabsRef`도 같이 고친다. 이 함수를
+          // `await`로 부른 쪽(알림 되살리기 등)이 바로 뒤에서 `tabsRef`를 읽는다 —
+          // 갱신을 다음 렌더에 맡기면 그쪽은 낡은 목록을 본다.
+          const next = tabsRef.current.map((tb) =>
+            tb.id === already.id ? { ...tb, hidden: false } : tb
           );
+          tabsRef.current = next;
+          setTabs(next);
         }
         setActiveId(already.id);
+        activeRef.current = already.id;
         return true;
       }
       let got;
@@ -981,10 +1002,14 @@ export default function App() {
         bigMd,
         dirty: false,
       };
-      setTabs((old) =>
-        reuse ? old.map((tb) => (tb.id === next.id ? next : tb)) : [...old, next]
-      );
+      // `await` 뒤라 클로저의 `tabs`는 낡았을 수 있다 — 목록은 **지금의** `tabsRef`에서
+      // 만들고, 부른 쪽이 바로 뒤에서 읽을 수 있게 `tabsRef`/`activeRef`도 같이 고친다.
+      const old = tabsRef.current;
+      const list = reuse ? old.map((tb) => (tb.id === next.id ? next : tb)) : [...old, next];
+      tabsRef.current = list;
+      setTabs(list);
       setActiveId(next.id);
+      activeRef.current = next.id;
       // 최근 파일 — 파일을 **열거나 저장할 때** 맨 앞으로. 중복 제거와 상한은 Rust가
       // 한다(쓰는 곳이 하나여야 창이 여럿일 때 서로 덮어쓰지 않는다).
       void recentAdd(path);
@@ -1146,19 +1171,66 @@ export default function App() {
   );
 
   /**
+   * 알림이 걸린 탭을 `저장 안 함`으로 버리기 전의 두 번째 확인 — 승인된 시안
+   * `DiscardReminder.dc.html`의 ②. **같은 D1 카드**(`Dialog`의 확인 모양)이고 둘째 줄만
+   * dim으로 예약 시각과 알림 글을 적는다.
+   *
+   * 기본(Enter·초기 초점·accent)은 **취소**다 — 실수로 예약을 지우지 않게. Esc도 취소.
+   * 참을 돌려주면 "알림도 지우고 닫기"다.
+   */
+  const askDiscardReminder = useCallback(
+    (rem: Reminder | null) =>
+      new Promise<boolean>((resolve) => {
+        const done = (answer: "save" | "discard" | "cancel") => {
+          if (answerRef.current !== done) return;
+          answerRef.current = null;
+          setDialog(null);
+          resolve(answer === "discard");
+        };
+        // `askSave`와 같은 자리를 쓴다(한 번에 하나만 뜨는 모달 규칙) — 앞의 질문이
+        // 남아 있으면 거기부터 `취소`로 끝낸다.
+        answerRef.current?.("cancel");
+        answerRef.current = done;
+        setDialog({
+          title: t("dlgTitleDiscardReminder"),
+          message: t("dlgDiscardReminder"),
+          // 알림을 못 찾았으면(막 울려서 목록에서 빠졌다) 둘째 줄을 적지 않는다 —
+          // 틀린 시각을 적는 것보다 비우는 쪽이 낫다.
+          detail: rem === null ? undefined : reminderDiscardDetail(rem),
+          buttons: [
+            { label: t("dlgBtnDiscardReminder"), onClick: () => done("discard") },
+            { label: t("dlgBtnCancel"), primary: true, cancel: true, onClick: () => done("cancel") },
+          ],
+        });
+      }),
+    []
+  );
+
+  /**
    * 그 탭을 버려도 되는가. 원본 `ConfirmDiscard`와 같다: 깨끗하면 바로 참,
    * `취소`는 거짓(부르는 쪽이 닫기를 그만둔다), `저장`은 **저장이 성공해야** 참이다
    * (제목 없는 탭이면 `다른 이름으로 저장` 대화상자가 뜨고, 그것을 취소하면 닫기도 취소).
+   *
+   * **§5의 예외 — 알림이 걸린 탭.** `저장 안 함`을 골랐는데 그 탭에 예약된 알림이 있으면
+   * 한 번 더 묻는다(시안 `DiscardReminder` ②). 거기서 `알림도 지우고 닫기`를 고르면
+   * 그 알림을 **취소하고** 탭을 버린다(숨겨 보관하지 않는다 — 사용자가 둘 다 버리기로
+   * 답했다). `취소`면 탭도 알림도 그대로 두고 닫기를 그만둔다.
+   * 저장한 탭의 알림은 건드리지 않는다 — 파일이 진실이므로 토스트가 그 파일을 열면 된다.
    */
   const confirmDiscard = useCallback(
     async (tab: Tab): Promise<boolean> => {
       if (!tab.dirty) return true;
       const answer = await askSave(tab);
       if (answer === "cancel") return false;
-      if (answer === "discard") return true;
-      return saveTab(tab.id, false);
+      if (answer === "save") return saveTab(tab.id, false);
+      const rid = discardReminderToConfirm(tab, answer);
+      if (rid === null) return true;
+      const rem = remindersRef.current?.pending.find((r) => r.id === rid) ?? null;
+      if (!(await askDiscardReminder(rem))) return false;
+      await cancelReminder(rid);
+      return true;
     },
-    [askSave, saveTab]
+    [askDiscardReminder, askSave, saveTab]
   );
 
   /** 지금 창의 상태를 세션 기록으로. 탭 목록은 **부르는 쪽이** 준다(닫는 중일 수 있다). */
@@ -1281,38 +1353,23 @@ export default function App() {
    * 탭 하나 닫기 — ✕ · Ctrl+W · 가운데 클릭. 미저장이면 D1로 묻고,
    * **마지막 탭을 닫으면 창이 닫힌다**(§5).
    *
-   * **§5의 예외 — 알림이 걸린 탭.** `저장 안 함`을 골랐는데 그 탭에 알림이 걸려 있으면
-   * 버리지 않고 **숨겨서 보관한다**: 어느 탭 줄에도 보이지 않고(`shownTabs`), 세션에는
-   * 그대로 들어가 재시작해도 숨은 채로 돌아오고, 그 알림의 토스트를 누를 때만 되살아난다.
-   * 알림이 끝나면 `reconcileReminderTabs`가 치운다.
-   *
-   * `confirmDiscard`를 쓰지 않고 답을 직접 받는 이유가 그것이다 — "저장했다"와
-   * "버리기로 했다"를 구별해야 숨길지 정할 수 있고, 저장한 탭은 파일이 진실이므로
-   * 숨길 이유가 없다(토스트가 그 파일을 다시 열면 된다).
+   * **§5의 예외 — 알림이 걸린 탭.** `저장 안 함`을 골랐는데 그 탭에 예약된 알림이 있으면
+   * `confirmDiscard`가 한 번 더 묻는다(시안 `DiscardReminder` ②). 거기서 닫기로 하면
+   * 그 알림을 취소하고 탭을 **정말 버린다** — 예전처럼 숨겨 보관하지 않는다.
+   * (숨은 탭 자체는 그대로 남는다: 이미 그렇게 닫혀 세션에 들어가 있던 탭과, 알림이
+   * 끝났을 때 치우는 `reconcileReminderTabs`는 전과 같다.)
    */
   const closeTab = useCallback(
     (id: number) => {
       void (async () => {
         const tab = findTab(tabsRef.current, id);
         if (!tab) return;
-        let hide = false;
-        if (tab.dirty) {
-          const answer = await askSave(tab);
-          if (answer === "cancel") return;
-          if (answer === "save") {
-            if (!(await saveTab(tab.id, false))) return;
-          } else if (tab.reminder !== null) {
-            hide = true;
-          }
-        }
+        if (!(await confirmDiscard(tab))) return;
         const before = tabsRef.current;
-        const next = hide
-          ? before.map((tb) => (tb.id === id ? { ...tb, hidden: true } : tb))
-          : before.filter((tb) => tb.id !== id);
+        const next = before.filter((tb) => tb.id !== id);
         const nextActive = activeAfterClose(before, id, activeRef.current);
         // 그 탭의 편집기(문서·실행취소)를 버린다 — `저장 안 함`은 정말 버리는 것이다.
-        // 숨겨 두는 탭은 **버리지 않는다**: 토스트를 누르면 그 글이 그대로 돌아와야 한다.
-        if (!hide) dropHost(id);
+        dropHost(id);
         setTabs(next);
         tabsRef.current = next;
         if (nextActive === null) {
@@ -1324,7 +1381,7 @@ export default function App() {
         activeRef.current = nextActive;
       })();
     },
-    [askSave, closeWindow, saveTab]
+    [closeWindow, confirmDiscard]
   );
 
   // --- 다중 창: 탭 떼어내기 · 합치기 (§5) --------------------------------
@@ -2731,24 +2788,51 @@ export default function App() {
       return;
     }
     // 글이 **움직였을** 뿐인 흔한 경우(위에 몇 줄이 끼어들었다) — 앞부분으로 찾는다.
-    // 저장된 글은 눌러 자른 것이므로 `…` 앞까지, 그리고 40자까지만 쓴다(원본과 같다).
-    let needle = req.text;
-    const cut = needle.indexOf("…");
-    if (cut >= 0) needle = needle.slice(0, cut);
-    if (needle.length > 40) needle = needle.slice(0, 40);
-    if (needle === "") return;
-    const at = text.indexOf(needle);
+    // 저장된 글은 **한 줄로 눌린** 것이라 원문에서 그대로 찾을 수 없다(여러 줄 선택이면
+    // 절대 못 찾는다) — 그 규칙을 아는 `findFlattened`가 찾는다.
     // 못 찾으면 창만 앞으로 온 것으로 끝낸다(원본과 같다 — 아무 데나 선택하지 않는다).
-    if (at < 0) return;
-    h.selectHit({ from: at, to: at + needle.length });
+    const hit = findFlattened(text, req.text);
+    if (hit === null) return;
+    h.selectHit(hit);
     h.focus();
   }, []);
+
+  /**
+   * 되살릴 범위를 **다음 커밋까지** 들고 있는 자리.
+   *
+   * `setTimeout(0)`으로 하면 편집기가 아직 mount되지 않았거나 스크롤 복원이 그 뒤에 와서
+   * 선택·스크롤이 유실된다(점검 2026-11-12). 아래 효과는 `[tabs, activeId]`가 커밋된
+   * **뒤**에 돌고, React는 효과를 자식부터 돌리므로 그때 `Editor`는 이미 붙어 있다.
+   */
+  const pendingRevealRef = useRef<{
+    uid: string | null;
+    path: string | null;
+    req: RevealRequest;
+  } | null>(null);
+
+  /** 들고 있던 요청을 지금 상태에 대고 적용해 본다 — 아직 때가 아니면 그대로 둔다. */
+  const flushReveal = useCallback(() => {
+    const pend = pendingRevealRef.current;
+    if (pend === null) return;
+    const list = tabsRef.current;
+    const want = pend.path;
+    const tab =
+      (pend.uid === null ? undefined : list.find((tb) => tb.uid === pend.uid)) ??
+      (want === null ? undefined : list.find((tb) => tb.path !== null && samePath(tb.path, want)));
+    // 아직 활성이 아니거나 숨은 채라면 편집기가 없다 — 다음 커밋에서 다시 본다.
+    if (tab === undefined || tab.hidden || tab.id !== activeRef.current) return;
+    pendingRevealRef.current = null;
+    revealIn(tab, pend.req);
+  }, [revealIn]);
 
   /** 토스트를 눌렀다 — 그 탭(숨은 탭이면 되살려)을 활성으로 하고 범위를 선택한다. */
   const reveal = useCallback(
     async (req: RevealRequest) => {
       const mine = tabsRef.current.find((tb) => tb.uid === req.tabUid);
       if (mine) {
+        // 아무것도 안 바뀌면 렌더도 없다 → 효과도 안 돈다. 그때는 여기서 바로 적용한다.
+        const willRender = mine.hidden || activeRef.current !== mine.id;
+        pendingRevealRef.current = { uid: mine.uid, path: mine.path, req };
         if (mine.hidden) {
           const next = tabsRef.current.map((tb) =>
             tb.id === mine.id ? { ...tb, hidden: false } : tb
@@ -2758,19 +2842,28 @@ export default function App() {
         }
         setActiveId(mine.id);
         activeRef.current = mine.id;
-        // 그 탭의 편집기가 화면에 붙는 것은 다음 렌더다 — 선택은 그 뒤에 한다.
-        window.setTimeout(() => revealIn(mine, req), 0);
+        // 그 탭의 편집기가 화면에 붙는 것은 다음 커밋이다 — 선택은 그 뒤 효과에서 한다.
+        if (!willRender) flushReveal();
         return;
       }
       // 그 탭이 이 창에 없다. 파일 탭이면 그 파일을 열어 그 글로 데려간다 — 원본의
       // "같은 문서가 열려 있어야 한다"는 조건을 지키지 못하는 경우의 가장 가까운 동작이다.
       const path = req.docPath;
       if (path === null) return;
-      await openPathRef.current(path);
-      const opened = tabsRef.current.find((tb) => tb.path !== null && samePath(tb.path, path));
-      if (opened) window.setTimeout(() => revealIn(opened, req), 0);
+      // 요청을 **열기 전에** 걸어 둔다: `openPath`가 커밋을 일으키므로 뒤에 걸면 효과가
+      // 이미 지나가 버린다. 못 열었으면 걷어낸다.
+      pendingRevealRef.current = { uid: null, path, req };
+      const wasTabs = tabsRef.current;
+      const wasActive = activeRef.current;
+      if (!(await openPathRef.current(path))) {
+        pendingRevealRef.current = null;
+        return;
+      }
+      // 이미 열려 있고 이미 활성인 파일이면 바뀐 것이 없다 → 커밋도 효과도 없다.
+      // 그때만 여기서 적용한다(그 탭의 편집기는 이미 붙어 있다).
+      if (tabsRef.current === wasTabs && activeRef.current === wasActive) flushReveal();
     },
-    [revealIn]
+    [flushReveal]
   );
 
   /** 리스너가 늘 **지금의** `reveal`을 부르게 하는 자리. */
@@ -2803,25 +2896,41 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
+  // 커밋이 끝난 뒤 되살릴 범위를 적용한다. React는 효과를 **자식부터** 돌리므로 이때
+  // `Editor`의 mount·스크롤 복원은 이미 끝났다 — `setTimeout(0)`이 못 지키던 순서다.
+  useEffect(() => {
+    flushReveal();
+  }, [tabs, activeId, flushReveal]);
+
   useEffect(() => {
     if (!sessionReady) return;
     void (async () => {
       const req = await takeReveal();
       if (req !== null) await revealRef.current(req);
+      // 이제 "이 숨은 탭을 되살려야 하는가"를 안다 — 그전까지 reconcile은 아무도 안 치웠다.
+      setRevealChecked(true);
     })();
   }, [sessionReady]);
 
   // 알림 상태 → 탭 목록. `Tab.reminder`를 맞추고 **알림이 끝난 숨은 탭을 치운다**(§5).
   useEffect(() => {
     if (reminders === null) return;
-    const result = reconcileReminderTabs(tabsRef.current, reminders);
+    // `revealChecked`가 아직 거짓이면 **숨은 탭을 치우지 않는다**: 카드 클릭으로 복원된
+    // 창은 `reminder_take_reveal`의 답을 받기 전이고, 그 사이에 온 `held=[]`를 믿으면
+    // 되살릴 탭을 치워 버린다(그리고 뒤이은 세션 쓰기의 `gc_buffers`가 버퍼까지 지운다).
+    const result = reconcileReminderTabs(tabsRef.current, reminders, revealChecked);
     const changed =
       result.dropped.length > 0 ||
       result.tabs.length !== tabsRef.current.length ||
       result.tabs.some((tab, i) => tab !== tabsRef.current[i]);
     // 숨은 탭만 남은 창은 **바뀐 것이 없어도** 세워 줘야 한다: 알림이 아직 붙들려
     // 있으면 `reconcile`은 아무것도 고치지 않는데, 그 창의 탭 줄은 비어 있다.
-    const empty = sessionReady && (result.tabs.length === 0 || onlyHiddenLeft(result.tabs));
+    // `revealChecked`도 본다: 되살릴 탭을 알기 전에 빈 탭을 세우면 되살린 탭 옆에
+    // 군더더기 탭이 하나 남는다(`sessionReady`를 보는 이유와 같은 이유다).
+    const empty =
+      sessionReady &&
+      revealChecked &&
+      (result.tabs.length === 0 || onlyHiddenLeft(result.tabs));
     if (!changed && !empty) return;
     for (const id of result.dropped) dropHost(id);
     /*
@@ -2847,7 +2956,7 @@ export default function App() {
       setActiveId(blank.id);
       activeRef.current = blank.id;
     }
-  }, [defaultTint, reminders, sessionReady]);
+  }, [defaultTint, reminders, revealChecked, sessionReady]);
 
   // 창 닫기 요청(✕ · Alt+F4 · Windows 종료 요청)을 가로채 닫기 규칙을 태운다.
   useEffect(() => {

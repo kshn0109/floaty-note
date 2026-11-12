@@ -16,11 +16,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { setLangMode, setSystemLang } from "../src/lib/i18n";
 import {
+  findFlattened,
   flattenText,
   missedPrefix,
   momentText,
   onlyHiddenLeft,
   reconcileReminderTabs,
+  reminderDiscardDetail,
   reminderStatusText,
   REMINDER_TEXT_MAX,
   type Reminder,
@@ -95,6 +97,11 @@ describe("시각 글자", () => {
 
   it("놓친 알림의 앞 조각은 dim으로 그릴 수 있게 따로다", () => {
     expect(missedPrefix(new Date(2026, 10, 5, 15, 30).getTime())).toBe("(놓침 2026-11-05 15:30)");
+  });
+
+  it("버리기 전 확인 카드의 둘째 줄은 시각 · 알림 글이다", () => {
+    const at = new Date(2026, 10, 5, 15, 30).getTime();
+    expect(reminderDiscardDetail(reminder("a", at, "t1"))).toBe('2026-11-05 15:30 · "회고 쓰기"');
   });
 });
 
@@ -195,6 +202,73 @@ describe("§5의 예외 — 알림이 걸린 탭", () => {
     expect(got.dropped).toEqual([]);
     expect(onlyHiddenLeft(got.tabs)).toBe(true);
     expect(shownTabs(got.tabs)).toEqual([]);
+  });
+
+  /**
+   * 회귀 시험 — 점검(2026-11-12)에서 잡은 버그.
+   *
+   * 카드를 눌러 복원된 창은 `reminder_take_reveal`의 답을 받기 **전에** 알림 상태를
+   * 받는다. 그때 `held`가 비어 있어도 되살릴 탭일 수 있으므로 치우면 안 된다 —
+   * 치우면 빈 탭이 열리고 세션 쓰기의 `gc_buffers`가 버퍼 파일까지 지웠다.
+   */
+  it("되살릴 탭을 아직 모르면(dropHidden=false) 숨은 탭을 하나도 치우지 않는다", () => {
+    const only = hiddenTab("t1", "r1");
+    const got = reconcileReminderTabs([only], state([], []), false);
+    expect(got.dropped).toEqual([]);
+    expect(got.tabs).toHaveLength(1);
+    expect(got.tabs[0].uid).toBe("t1");
+    // 그래도 `Tab.reminder`는 맞춘다 — 대기 중인 알림이 없으므로 `null`이 된다.
+    expect(got.tabs[0].reminder).toBeNull();
+  });
+});
+
+describe("눌린 알림 글로 원문에서 자리 찾기 (findFlattened)", () => {
+  it("여러 줄 선택을 찾는다 — 눌린 글은 원문에 그대로 없다", () => {
+    const text = "머리말\n첫 줄\n둘째 줄\n꼬리말";
+    const needle = flattenText("첫 줄\n둘째 줄");
+    expect(needle).toBe("첫 줄 둘째 줄");
+    // 그냥 찾으면 없다 — 이것이 카드를 눌러도 아무 데도 선택되지 않았던 이유다.
+    expect(text.indexOf(needle)).toBe(-1);
+    const hit = findFlattened(text, needle);
+    expect(hit).not.toBeNull();
+    expect(text.slice(hit!.from, hit!.to)).toBe("첫 줄\n둘째 줄");
+  });
+
+  it("탭과 연속 공백도 같은 자리로 본다", () => {
+    const hit = findFlattened("앞\n가\t\t나   다\n뒤", "가 나 다");
+    expect(hit).not.toBeNull();
+    expect(hit).toEqual({ from: 2, to: 10 });
+  });
+
+  it("`…`로 잘린 글은 잘린 부분을 빼고 앞부분으로 찾는다", () => {
+    const text = "머리말 긴 글의 앞부분 그리고 뒤에 더 많은 글";
+    const hit = findFlattened(text, "긴 글의 앞부분…");
+    expect(hit).not.toBeNull();
+    expect(text.slice(hit!.from, hit!.to)).toBe("긴 글의 앞부분");
+  });
+
+  it("정규식 메타문자는 글자 그대로 찾는다", () => {
+    const hit = findFlattened("코드 a.*b(c) 끝", "a.*b(c)");
+    expect(hit).not.toBeNull();
+    expect(hit).toEqual({ from: 3, to: 10 });
+    // 메타문자가 살아 있었다면 아래도 맞아 버렸다.
+    expect(findFlattened("코드 axxbc 끝", "a.*b(c)")).toBeNull();
+  });
+
+  it("못 찾으면 null — 부르는 쪽은 아무 데도 선택하지 않는다", () => {
+    expect(findFlattened("전혀 다른 글", "없는 글")).toBeNull();
+    expect(findFlattened("아무 글", "")).toBeNull();
+    expect(findFlattened("아무 글", "   ")).toBeNull();
+    expect(findFlattened("아무 글", "…")).toBeNull();
+  });
+
+  it("공백이 없는 긴 글은 앞 40자로 찾는다(원본과 같은 상한)", () => {
+    const body = "가".repeat(120);
+    const text = `머리말\n${body}\n꼬리말`;
+    const hit = findFlattened(text, body);
+    expect(hit).not.toBeNull();
+    expect(hit!.from).toBe(4);
+    expect(hit!.to - hit!.from).toBe(40);
   });
 });
 

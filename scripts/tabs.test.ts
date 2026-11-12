@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { tabCloseNeedsPrompt, tabsToPrompt, windowCloseMode } from "../src/lib/closing";
+import {
+  discardReminderToConfirm,
+  tabCloseNeedsPrompt,
+  tabsToPrompt,
+  windowCloseMode,
+} from "../src/lib/closing";
 import {
   activeAfterClose,
   createTab,
@@ -173,5 +178,23 @@ describe("닫기 규칙 판정 (§5)", () => {
     tabs[3].dirty = true;
     tabs[3].hidden = true;
     expect(ids(tabsToPrompt(tabs))).toEqual(["a", "c"]);
+  });
+});
+
+describe("알림이 걸린 탭을 버리기 전 두 번째 확인 (시안 DiscardReminder ②)", () => {
+  it("저장 안 함 + 알림이 있으면 그 알림 id로 한 번 더 묻는다", () => {
+    expect(discardReminderToConfirm({ reminder: "r1" }, "discard")).toBe("r1");
+  });
+
+  it("알림이 없으면 묻지 않고 바로 닫는다", () => {
+    expect(discardReminderToConfirm({ reminder: null }, "discard")).toBeNull();
+  });
+
+  it("저장했으면 묻지 않는다 — 파일이 진실이므로 알림을 그대로 둔다", () => {
+    expect(discardReminderToConfirm({ reminder: "r1" }, "save")).toBeNull();
+  });
+
+  it("취소는 이미 닫기를 그만둔 답이다", () => {
+    expect(discardReminderToConfirm({ reminder: "r1" }, "cancel")).toBeNull();
   });
 });

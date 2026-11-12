@@ -54,3 +54,20 @@ export function tabsToPrompt(tabs: readonly Tab[]): Tab[] {
 export function tabCloseNeedsPrompt(tab: Pick<Tab, "dirty">): boolean {
   return tab.dirty;
 }
+
+/**
+ * D1에서 `저장 안 함`을 골랐을 때 **두 번째 확인이 필요한 알림의 id**(없으면 `null`).
+ *
+ * 승인된 시안(`DiscardReminder.dc.html`)의 ②다: 알림이 걸린 탭을 저장하지 않고 버리면
+ * 예약한 알림도 사라지므로 한 번 더 묻는다. `저장`은 파일이 진실이 되므로 묻지 않고,
+ * `취소`는 이미 닫기를 그만둔 답이다. 알림이 없는 탭은 지금처럼 바로 닫힌다.
+ *
+ * 돌려주는 값이 **id**인 이유: 확인을 받은 뒤 취소할 알림을 부르는 쪽이 그대로 쓴다
+ * (`cancelReminder`). 참/거짓만 주면 부르는 쪽이 `tab.reminder`를 다시 들여다봐야 한다.
+ */
+export function discardReminderToConfirm(
+  tab: Pick<Tab, "reminder">,
+  answer: "save" | "discard" | "cancel"
+): string | null {
+  return answer === "discard" ? tab.reminder : null;
+}
