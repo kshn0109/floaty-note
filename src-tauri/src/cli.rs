@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn 인자가_없으면_빈_목록() {
-        let argv: Vec<String> = vec!["inkwell.exe".into()];
+        let argv: Vec<String> = vec!["Floaty Note.exe".into()];
         assert!(file_args(&argv).is_empty());
     }
 }

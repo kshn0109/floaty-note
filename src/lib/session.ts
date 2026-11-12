@@ -499,6 +499,67 @@ export async function sessionCounts(): Promise<{ live: number; frozen: number }>
   }
 }
 
+/**
+ * Windows가 **세션을 끝내려 한다**(종료·로그오프·재시작). 페이로드는 `true`(종료 중) ·
+ * `false`(취소됐다). Rust의 `shutdown::SESSION_ENDING_EVENT`와 같은 이름이고, 이름을
+ * 받은 창은 **묻지 않고** 세션을 쓴 뒤 `sessionEndingFlushed()`로 알린다(§5의 예외:
+ * 종료를 대화상자로 막을 수 없다 — 메모장도 종료에서는 묻지 않는다).
+ */
+export const SESSION_ENDING_EVENT = "inkwell://session-ending";
+
+/**
+ * 지금 Windows 세션이 끝나는 중인가. 이벤트가 닿기 전에 닫기 요청이 먼저 올 수 있어
+ * 닫기 판정은 이 값을 **직접** 묻는다(깃발은 Rust가 `WM_QUERYENDSESSION`에서 세운다).
+ */
+export async function sessionEnding(): Promise<boolean> {
+  try {
+    return (await invoke<boolean>("session_ending")) === true;
+  } catch {
+    // 모르면 평소 규칙대로 — 종료 중이 아니라고 본다.
+    return false;
+  }
+}
+
+/**
+ * Windows 종료를 **보류했다** — 저장되지 않은 글이 있어 묻는다(`새 세션` 설정).
+ *
+ * Rust의 `shutdown::SESSION_ENDING_ASK_EVENT`와 같은 이름이고, 받은 창은 평소
+ * `새 세션` 닫기(`askThenDiscard`: 탭마다 저장/저장 안 함/취소)를 그대로 돌린 뒤
+ * `sessionEndingAnswered()`로 알린다.
+ */
+export const SESSION_ENDING_ASK_EVENT = "inkwell://session-ending-ask";
+
+/**
+ * 이 창은 Windows 종료 때 **물어야 하는가**를 Rust에 보고한다(`needsShutdownPrompt`).
+ * `WM_QUERYENDSESSION`은 동기적으로 답해야 해서 프론트에 물어볼 틈이 없다 — 그래서
+ * 상태가 바뀔 때마다 미리 보고해 둔다.
+ */
+export async function setShutdownPrompt(needed: boolean): Promise<void> {
+  try {
+    await invoke("set_shutdown_prompt", { needed });
+  } catch {
+    // 못 보고하면 전처럼 묻지 않고 종료된다 — 종료가 막히는 쪽보다 안전하다.
+  }
+}
+
+/** 보류한 종료의 물음에 다 답했다(저장·버림·취소 어느 쪽이든) — 보류 이유를 지운다. */
+export async function sessionEndingAnswered(): Promise<void> {
+  try {
+    await invoke("session_ending_answered");
+  } catch {
+    // 창이 이미 닫히는 중이면 Rust의 `Destroyed` 처리가 같은 일을 한다.
+  }
+}
+
+/** 종료 중의 세션 쓰기가 끝났다고 Rust에 알린다(그쪽이 `WM_ENDSESSION`에서 기다린다). */
+export async function sessionEndingFlushed(): Promise<void> {
+  try {
+    await invoke("session_ending_flushed");
+  } catch {
+    // 못 알려도 Rust는 상한(2초)만큼 기다린 뒤 종료를 이어 간다.
+  }
+}
+
 export async function clearSession(): Promise<void> {
   try {
     await invoke("session_clear");

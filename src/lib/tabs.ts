@@ -92,12 +92,14 @@ export function createTab(tint: Tint, name: string | null = null, uid = newTabUi
 }
 
 /**
- * 저장 대화상자에 넣을 기본 이름. 제목 없음이면 `제목 없음.txt` — 메모장처럼 기본은
- * 텍스트 파일이다(사용자 결정 2026-11-09, 원본의 `.md` 기본을 바꿈).
+ * 저장 대화상자에 넣을 기본 이름. 제목 없음이면 편집 모드를 따른다 — 마크다운 탭(새 메모의
+ * 기본)은 `제목 없음.md`, 일반 텍스트 탭은 `제목 없음.txt`. 서식을 넣은 글이 `.txt`로
+ * 저장돼 다시 열 때 서식이 사라지는 일을 막는다(사용자 결정 2026-11-12, 11-09의 `.txt`
+ * 기본을 바꿈).
  */
 export function suggestedSaveName(tab: Tab): string {
   if (tab.path !== null) return leafOf(tab.path);
-  return `${t("tabUntitled")}.txt`;
+  return `${t("tabUntitled")}.${tab.format === "markdown" ? "md" : "txt"}`;
 }
 
 /** 화면에 보일 이름. "제목 없음"은 문자열 표에 있는 하나뿐이라 탭과 창 제목이 어긋나지 않는다. */

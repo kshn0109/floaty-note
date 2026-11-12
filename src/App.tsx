@@ -26,7 +26,14 @@ import StatusText, { type DocStats } from "./components/StatusText";
 import TableGrid from "./components/TableGrid";
 import TitleBar from "./components/TitleBar";
 import ToolDock from "./components/ToolDock";
-import { discardReminderToConfirm, tabsToPrompt, windowCloseMode } from "./lib/closing";
+import {
+  discardReminderToConfirm,
+  loneDirtyTab,
+  needsShutdownPrompt,
+  tabsToPrompt,
+  windowCloseMode,
+  type WindowCloseTrigger,
+} from "./lib/closing";
 import type { CommandTable } from "./lib/commands";
 import { isDockMenuKey, statusCollides, type FitRect } from "./lib/dockFit";
 import type {
@@ -108,7 +115,13 @@ import {
   OPEN_FILES_EVENT,
   parseHistory,
   putWindow,
+  SESSION_ENDING_ASK_EVENT,
+  SESSION_ENDING_EVENT,
   sessionCounts,
+  sessionEnding,
+  sessionEndingAnswered,
+  sessionEndingFlushed,
+  setShutdownPrompt,
   splitSession,
   takeCliFiles,
   type MonitorBox,
@@ -209,6 +222,16 @@ const EMPTY_QUERY: EditorQuery = {
   canRedo: false,
   canFormat: true,
 };
+
+/**
+ * D1(저장 확인)이 끝난 결과. `cancel`이 아니면 닫아도 된다.
+ *
+ *   kept       깨끗한 탭이라 묻지 않았다.
+ *   saved      저장했다(그 탭은 파일로 남는다).
+ *   discarded  `저장 안 함` — 그 탭의 글을 **버린다**(세션에도 남지 않아야 한다).
+ *   cancel     닫기를 그만둔다(`다른 이름으로 저장`을 취소한 경우도 여기다).
+ */
+type DiscardOutcome = "kept" | "saved" | "discarded" | "cancel";
 
 export default function App() {
   // --- 저장되는 값 (settings.json) ---
@@ -370,6 +393,8 @@ export default function App() {
   activeRef.current = activeId;
   const startupRef = useRef(startup);
   startupRef.current = startup;
+  /** Windows 세션이 끝나는 중인가(종료·로그오프) — 닫기 판정이 묻지 않게 하는 깃발. */
+  const endingRef = useRef(false);
   const overlayRef = useRef(overlay);
   overlayRef.current = overlay;
   /** 설정 모달이 열려 있는지 — 단축키 핸들러가 매번 다시 붙지 않게 ref로 본다. */
@@ -1217,20 +1242,26 @@ export default function App() {
    * 답했다). `취소`면 탭도 알림도 그대로 두고 닫기를 그만둔다.
    * 저장한 탭의 알림은 건드리지 않는다 — 파일이 진실이므로 토스트가 그 파일을 열면 된다.
    */
-  const confirmDiscard = useCallback(
-    async (tab: Tab): Promise<boolean> => {
-      if (!tab.dirty) return true;
+  const confirmDiscardOutcome = useCallback(
+    async (tab: Tab): Promise<DiscardOutcome> => {
+      if (!tab.dirty) return "kept";
       const answer = await askSave(tab);
-      if (answer === "cancel") return false;
-      if (answer === "save") return saveTab(tab.id, false);
+      if (answer === "cancel") return "cancel";
+      if (answer === "save") return (await saveTab(tab.id, false)) ? "saved" : "cancel";
       const rid = discardReminderToConfirm(tab, answer);
-      if (rid === null) return true;
+      if (rid === null) return "discarded";
       const rem = remindersRef.current?.pending.find((r) => r.id === rid) ?? null;
-      if (!(await askDiscardReminder(rem))) return false;
+      if (!(await askDiscardReminder(rem))) return "cancel";
       await cancelReminder(rid);
-      return true;
+      return "discarded";
     },
     [askDiscardReminder, askSave, saveTab]
+  );
+
+  /** 위의 답을 `닫아도 되는가` 한 글자로 줄인 것 — 부르는 쪽 대부분은 이것만 쓴다. */
+  const confirmDiscard = useCallback(
+    async (tab: Tab): Promise<boolean> => (await confirmDiscardOutcome(tab)) !== "cancel",
+    [confirmDiscardOutcome]
   );
 
   /** 지금 창의 상태를 세션 기록으로. 탭 목록은 **부르는 쪽이** 준다(닫는 중일 수 있다). */
@@ -1293,10 +1324,13 @@ export default function App() {
   /**
    * 창을 닫는다 — ✕ · Alt+F4 · Ctrl+Shift+W · 끝내기가 모두 여기로 온다.
    * 이 창이 마지막 창이면 창이 사라지는 것이 곧 앱 종료다(알림 트레이 상주는 알림 단계).
+   *
+   * `trigger`가 `app`이면 **앱 전체 종료**(트레이 `종료` · ☰ `끝내기`)다 — 창마다
+   * 묻지 않는다(메모장과 같다). 창 하나를 닫는 길만 `askLoneTab`을 지난다.
    */
   const closeWindow = useCallback(
-    async (list?: readonly Tab[]): Promise<void> => {
-      const tabList = list ?? tabsRef.current;
+    async (list?: readonly Tab[], trigger: WindowCloseTrigger = "window"): Promise<void> => {
+      let tabList = list ?? tabsRef.current;
       const win = getCurrentWindow();
 
       /** 미저장 탭마다 묻는 길. 하나라도 취소하면 닫기 전체를 그만둔다(원본과 같다). */
@@ -1312,10 +1346,17 @@ export default function App() {
       // 이 창 말고 세션에 남는 것이 있는가 — 살아 있는 다른 창 + 얼린 창. Rust가 센다
       // (얼린 창 목록이 프론트에 있으면 창마다 한 벌이 되어 창이 닫힐 때 사라진다).
       const counts = await sessionCounts();
+      const others = Math.max(0, counts.live - 1) + counts.frozen;
+      // Windows 종료·로그오프 중인가. 이벤트가 닿기 전에 닫기 요청이 먼저 올 수 있어
+      // 깃발을 Rust에 **직접** 묻는다(`WM_QUERYENDSESSION`이 세워 둔 값).
+      const ending = endingRef.current || (await sessionEnding());
       const mode = windowCloseMode({
         startup: startupRef.current,
         totalTabs: tabList.length,
-        others: Math.max(0, counts.live - 1) + counts.frozen,
+        others,
+        trigger,
+        loneDirty: loneDirtyTab(tabList) !== null,
+        ending,
       });
 
       if (mode === "askThenDiscard") {
@@ -1324,12 +1365,38 @@ export default function App() {
         await win.destroy();
         return;
       }
+
+      // 보이는 탭이 하나뿐이고 미저장인 창을 **직접** 닫았다(사용자 결정). 탭 하나를
+      // 닫을 때와 같은 D1 — 알림이 걸린 탭의 두 번째 확인도 `confirmDiscardOutcome`이
+      // 그대로 따라온다. `저장 안 함`이면 그 탭을 목록에서 빼고(= 세션에도 들어가지
+      // 않고, Rust의 `gc_buffers`가 그 탭의 `buf_*`를 치운다) 나머지로 다시 판정한다.
+      if (mode === "askLoneTab") {
+        const lone = loneDirtyTab(tabList);
+        if (lone !== null) {
+          setActiveId(lone.id);
+          activeRef.current = lone.id;
+          const outcome = await confirmDiscardOutcome(lone);
+          if (outcome === "cancel") return;
+          if (outcome === "discarded") {
+            // 그 탭의 편집기(문서·실행취소)까지 버린다 — `저장 안 함`은 정말 버리는 것이다.
+            dropHost(lone.id);
+            const rest = tabsRef.current.filter((tb) => tb.id !== lone.id);
+            tabList = rest;
+            setTabs(rest);
+            tabsRef.current = rest;
+          } else {
+            // 저장했다 — `saveTab`이 고친 탭(경로·이름·dirty)을 세션에 넣어야 한다.
+            tabList = tabsRef.current;
+          }
+        }
+      }
+
       // 탭이 하나도 남지 않은 채 닫히는 경우(마지막 탭을 닫았다). 디스크의 세션을
       // 그대로 두면 **방금 닫은 탭이 다음 실행에 돌아온다** — §5의 `저장 안 함 = 버림`과
       // 반대다. 그래서 세션을 지운다(다음 실행은 빈 탭 하나로 뜬다).
       // 원본은 마지막 탭을 목록에 남겨 둔 채(깨끗하게 만들어) 창을 닫아 그 탭이 다시
       // 돌아왔다 — 메모장 11은 돌아오지 않으므로 메모장 쪽을 따랐다(보고에 적었다).
-      if (mode === "clearSession") {
+      if (tabList.length === 0 && others === 0) {
         await clearSession();
         await win.destroy();
         return;
@@ -1346,8 +1413,12 @@ export default function App() {
       }
       await win.destroy();
     },
-    [confirmDiscard, snapshotWindow]
+    [confirmDiscard, confirmDiscardOutcome, snapshotWindow]
   );
+
+  /** 종료 보류의 물음이 부르는 '지금' 닫기 — 효과가 매번 다시 붙지 않게 ref로 둔다. */
+  const closeWindowRef = useRef(closeWindow);
+  closeWindowRef.current = closeWindow;
 
   /**
    * 탭 하나 닫기 — ✕ · Ctrl+W · 가운데 클릭. 미저장이면 D1로 묻고,
@@ -2976,18 +3047,99 @@ export default function App() {
   }, [closeWindow]);
 
   // `끝내기`가 모든 창에 보낸 요청 — 창마다 자기 닫기 규칙(§5)을 돌린다.
+  // **앱 전체 종료**이므로 `trigger: "app"`이다: 창이 여럿일 때 창마다 저장 확인이
+  // 줄줄이 뜨면 종료가 끝나지 않는다(메모장도 종료에서는 묻지 않는다).
   useEffect(() => {
     const win = getCurrentWindow();
     let unlisten: UnlistenFn | undefined;
     void win
       .listen(CLOSE_REQUEST_EVENT, () => {
-        void closeWindow();
+        void closeWindow(undefined, "app");
       })
       .then((fn) => {
         unlisten = fn;
       });
     return () => unlisten?.();
   }, [closeWindow]);
+
+  /*
+   * Windows **종료·로그오프·재시작**(§5의 예외).
+   *
+   * Rust가 `WM_QUERYENDSESSION`에서 알려 준다(`src-tauri/src/shutdown.rs` — tao는 그
+   * 메시지를 처리하지 않으므로 창에는 `WM_CLOSE`도, `onCloseRequested`도 오지 않는다).
+   * 그래서 **여기가 종료 때 세션을 쓰는 유일한 자리**다: 묻지 않고(물을 수 없다 —
+   * Windows는 답을 기다려 주지 않는다) 디바운스를 기다리지 않고 바로 쓴 뒤 Rust에
+   * 끝났다고 알린다. Rust는 `WM_ENDSESSION`에서 그 알림을 기다린 뒤 종료로 넘어간다.
+   *
+   * `새 세션`(fresh) 설정이면 **쓰지 않는다** — 그 설정은 "미저장 변경을 버린다"는
+   * 뜻이고, 평소에도 이 모드는 세션을 쓰지 않고 시작할 때 세션을 지운다. 종료 때만
+   * 보관하면 설정과 반대가 된다.
+   *
+   * 깃발을 `endingRef`에도 둔다 — 종료 중에 닫기 요청이 들어오면 `closeWindow`가
+   * 묻지 않고 지나가야 한다(`windowCloseMode`의 `ending`).
+   */
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten: UnlistenFn | undefined;
+    void win
+      .listen<boolean>(SESSION_ENDING_EVENT, (e) => {
+        const ending = e.payload !== false;
+        endingRef.current = ending;
+        if (!ending) return;
+        void (async () => {
+          if (startupRef.current === "restore") await writeSession(tabsRef.current);
+          await sessionEndingFlushed();
+        })();
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
+  }, [writeSession]);
+
+  /*
+   * 종료 때 **물어야 하는가**를 Rust에 보고해 둔다(사용자 결정 2026-11-12).
+   *
+   * `WM_QUERYENDSESSION`은 동기적으로 답해야 해서 그 순간 프론트에 물어볼 틈이 없다
+   * (`src-tauri/src/shutdown.rs`). 그래서 판정이 바뀔 때마다 — 미저장 변화 · 탭 추가·닫기 ·
+   * 시작 설정 변경 · 이 창이 생길 때 — 미리 보고한다. 창이 사라질 때는 Rust의
+   * `Destroyed`가 치운다(창이 부서진 뒤에는 커맨드가 닿지 못한다).
+   */
+  useEffect(() => {
+    void setShutdownPrompt(needsShutdownPrompt({ startup, tabs }));
+  }, [startup, tabs]);
+
+  /*
+   * Windows 종료를 **보류하고 묻는다** — `새 세션` 설정 + 보이는 미저장 탭(사용자 결정).
+   *
+   * Rust가 `WM_QUERYENDSESSION`에 `FALSE`로 답하고 종료 보류 이유를 등록한 뒤 이 이벤트를
+   * 보낸다. 여기서는 **평소 `새 세션` 닫기를 그대로** 돌린다(`closeWindow` → `askThenDiscard`:
+   * 탭마다 저장/저장 안 함/취소, 알림이 걸린 탭은 두 번째 확인). 다 답하면 창이 닫히고,
+   * `취소`면 창은 그대로 남는다 — 어느 쪽이든 보류 이유를 지운다(종료를 계속할지는
+   * Windows가 사용자에게 묻는다). 묻는 중에 같은 이벤트가 또 와도 다시 띄우지 않는다.
+   */
+  const askingEndRef = useRef(false);
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten: UnlistenFn | undefined;
+    void win
+      .listen(SESSION_ENDING_ASK_EVENT, () => {
+        if (askingEndRef.current) return;
+        askingEndRef.current = true;
+        void (async () => {
+          try {
+            await closeWindowRef.current(undefined, "window");
+          } finally {
+            askingEndRef.current = false;
+            await sessionEndingAnswered();
+          }
+        })();
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
+  }, []);
 
   // 이미 실행 중일 때 들어온 파일 — 이 창에 **새 탭**으로 열린다(단일 인스턴스, §5).
   // 창을 앞으로 올리는 것은 Rust 쪽(`cli::on_second_instance`)이 한다.

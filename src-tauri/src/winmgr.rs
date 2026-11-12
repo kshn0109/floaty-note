@@ -270,6 +270,11 @@ pub fn target_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
 #[tauri::command]
 pub fn window_boot(window: Window, state: tauri::State<'_, Windows>) -> BootInfo {
     let label = window.label().to_string();
+    // Windows 종료·로그오프를 받는 가로채기를 이 창에 끼운다(창마다 한 번 · 멱등).
+    // 여기 두는 이유: `window_boot`은 **창마다 꼭 한 번** 불리는 첫 커맨드다.
+    if is_main_label(&label) {
+        crate::shutdown::install(&window);
+    }
     let mut inner = lock(&state);
     if is_main_label(&label) && !inner.order.iter().any(|l| l == &label) {
         inner.order.push(label.clone());

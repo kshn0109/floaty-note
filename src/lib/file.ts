@@ -81,17 +81,23 @@ const FILTERS = [
 ];
 
 /**
- * 저장 대화상자의 필터 — **텍스트가 맨 앞**(= 기본 선택)이다. 메모장처럼 저장 기본은
- * `.txt`(사용자 결정 2026-11-09). 마크다운으로 남기려면 형식에서 Markdown을 고르거나
- * 이름을 `.md`로 적는다.
+ * 저장 대화상자의 필터 — 맨 앞이 기본 선택이다. 제안 이름이 `.txt`면 텍스트를, 아니면
+ * 마크다운을 앞에 둔다(새 메모의 기본은 `.md` — 사용자 결정 2026-11-12).
  */
-const SAVE_FILTERS = [
-  { name: "Text", extensions: ["txt"] },
-  { name: "Markdown", extensions: ["md", "markdown"] },
-  { name: "All files", extensions: ["*"] },
-];
+const MD_FILTER = { name: "Markdown", extensions: ["md", "markdown"] };
+const TXT_FILTER = { name: "Text", extensions: ["txt"] };
+const ALL_FILTER = { name: "All files", extensions: ["*"] };
 
-const DEFAULT_EXT = "txt";
+function saveFiltersFor(ext: string) {
+  return ext === "txt" ? [TXT_FILTER, MD_FILTER, ALL_FILTER] : [MD_FILTER, TXT_FILTER, ALL_FILTER];
+}
+
+/** 제안 이름의 확장자(소문자). 없으면 `md`. */
+function extOf(name: string): string {
+  const leaf = leafOf(name);
+  const dot = leaf.lastIndexOf(".");
+  return dot > 0 ? leaf.slice(dot + 1).toLowerCase() : "md";
+}
 
 /** 열기 대화상자. 취소하면 `null`. */
 export async function pickOpenPath(): Promise<string | null> {
@@ -102,14 +108,15 @@ export async function pickOpenPath(): Promise<string | null> {
 /**
  * 다른 이름으로 저장 대화상자. 취소하면 `null`.
  *
- * 확장자를 적지 않은 이름은 `.txt`가 된다(메모장과 같음 — 원본은 `.md`였다). Windows의
+ * 확장자를 적지 않은 이름은 제안 이름의 확장자(새 메모면 `.md`)를 받는다. Windows의
  * 대화상자는 기본 확장자를 스스로 붙여 주지만 Tauri 플러그인은 보장하지 않으므로
  * 여기서 한 번 더 확인한다 — "제목 없음"으로 저장한 파일이 확장자 없이 남으면
  * 마크다운으로 열리기는 해도 탐색기에서 연결 프로그램을 잃는다.
  */
 export async function pickSavePath(suggestedName: string): Promise<string | null> {
-  const picked = await saveDialog({ defaultPath: suggestedName, filters: SAVE_FILTERS });
+  const ext = extOf(suggestedName);
+  const picked = await saveDialog({ defaultPath: suggestedName, filters: saveFiltersFor(ext) });
   if (typeof picked !== "string" || picked === "") return null;
   const leaf = leafOf(picked);
-  return leaf.includes(".") ? picked : `${picked}.${DEFAULT_EXT}`;
+  return leaf.includes(".") ? picked : `${picked}.${ext}`;
 }

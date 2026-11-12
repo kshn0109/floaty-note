@@ -36,12 +36,14 @@ describe("경로", () => {
     expect(leafOf("메모.md")).toBe("메모.md");
   });
 
-  it("제목 없는 탭의 기본 저장 이름은 `.txt`다 (사용자 결정 2026-11-09 — 메모장처럼)", () => {
+  it("제목 없는 탭의 기본 저장 이름은 모드를 따른다 — 마크다운 `.md`, 텍스트 `.txt` (사용자 결정 2026-11-12)", () => {
     const tab = createTab("none");
     expect(tab.path).toBe(null);
     expect(tab.enc).toBe("utf8");
     expect(tab.eol).toBe("lf");
-    expect(suggestedSaveName(tab)).toBe("Untitled.txt");
+    expect(tab.format).toBe("markdown");
+    expect(suggestedSaveName(tab)).toBe("Untitled.md");
+    expect(suggestedSaveName({ ...tab, format: "plain" })).toBe("Untitled.txt");
     expect(suggestedSaveName({ ...tab, path: "C:\\notes\\메모.md" })).toBe("메모.md");
   });
 });

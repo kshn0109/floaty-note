@@ -7,6 +7,7 @@ mod recent;
 mod reminders;
 mod session;
 mod settings;
+mod shutdown;
 mod syscmd;
 mod textfile;
 mod toast;
@@ -144,6 +145,10 @@ pub fn run() {
                 session::session_clear,
                 settings::load_settings,
                 settings::save_settings,
+                shutdown::session_ending,
+                shutdown::session_ending_answered,
+                shutdown::session_ending_flushed,
+                shutdown::set_shutdown_prompt,
                 syscmd::sys_command,
                 syscmd::system_language,
                 syscmd::time_date_stamp,
@@ -189,6 +194,9 @@ pub fn run() {
                     }
                     app.state::<winmgr::Windows>().forget(&label);
                     app.state::<overlay::Overlay>().forget(&label);
+                    // 종료 때 물을지 보고해 둔 깃발도 치운다 — 사라진 창의 깃발이 남으면
+                    // 그 창 때문에 종료가 영원히 막힌다(src/shutdown.rs).
+                    shutdown::forget(&label);
                     // 닫힌 창의 메모가 남은 창의 `다른 창` 묶음에 유령으로 남지 않게
                     // 목록을 다시 보낸다(`forget`이 그 창의 요약을 이미 지웠다).
                     winmgr::broadcast_notes(&app);

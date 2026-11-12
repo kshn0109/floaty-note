@@ -659,6 +659,10 @@ button {
   flex-grow: 1;
   min-width: 0;
 }
+/* 안전망: 편집기 말고 다른 잔해가 남아도 폭을 먹지 못하게(1.0.0 왼쪽 여백 버그). */
+.editor[data-engine="plain"] > *:not(.cm-editor) {
+  display: none;
+}
 
 /* ProseMirror 본문 — `pre-wrap`은 선택이 아니다(줄 끝 공백·탭이 보존되어야 한다).
    **빈 곳을 눌러도 커서가 놓이게**(사용자 보고 1 — Windows 메모장과 같다: 아래쪽 빈

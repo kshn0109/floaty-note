@@ -1,7 +1,7 @@
 [package]
-name = "inkwell"
+name = "floaty-note"
 version = "1.0.1"
-description = "A Tauri App"
+description = "Floaty Note"
 authors = ["you"]
 edition = "2024"
 
@@ -11,7 +11,7 @@ edition = "2024"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "inkwell_lib"
+name = "floaty_note_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -60,5 +60,12 @@ windows-sys = { version = "0.61", features = [
     # 알림 소리 `MessageBeep`이 여기 산다(원본과 같은 "알림" 소리).
     "Win32_System_Diagnostics_Debug",
     # `FlashWindowEx` — 알림이 울릴 때 작업 표시줄 깜빡임(열린 창이 있을 때만).
+    # Windows 종료·로그오프(`WM_QUERYENDSESSION`)를 받는 창 프로시저 가로채기도
+    # 여기 산다 — `SetWindowLongPtrW`·`CallWindowProcW`·`EnumThreadWindows`
+    # (src/shutdown.rs). `GetCurrentThreadId`는 Win32_System_Threading이다.
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    # 종료를 보류하는 이유 등록 — `ShutdownBlockReasonCreate`/`Destroy`
+    # (src/shutdown.rs의 `새 세션` + 미저장 탭 예외). Win10/11 공통, 권한 불필요.
+    "Win32_System_Shutdown",
 ] }
